@@ -33,6 +33,44 @@ class ZoteroHTMLExtractor:
         self.html_converter.ignore_images = False
         self.html_converter.body_width = 0  # Don't wrap lines
         
+    def list_collections(self) -> List[Dict]:
+        """
+        List all collections in the library.
+        
+        Returns:
+            List of all collections
+        """
+        try:
+            collections = self.zot.collections()
+            return collections
+        except Exception as e:
+            print(f"Error listing collections: {e}")
+            return []
+    
+    def print_collections(self):
+        """Print all available collections with their keys."""
+        collections = self.list_collections()
+        if not collections:
+            print("No collections found or error accessing library")
+            return
+        
+        print(f"\n{'='*60}")
+        print(f"Available Collections ({len(collections)} total)")
+        print(f"{'='*60}")
+        
+        for col in collections:
+            name = col['data'].get('name', 'Unnamed')
+            key = col['key']
+            parent = col['data'].get('parentCollection', 'Top-level')
+            num_items = col['meta'].get('numItems', 0)
+            print(f"  📁 {name}")
+            print(f"     Key: {key}")
+            print(f"     Items: {num_items}")
+            if parent != 'Top-level':
+                print(f"     Parent: {parent}")
+            print()
+        print(f"{'='*60}\n")
+    
     def get_collection_items(self, collection_key: str) -> List[Dict]:
         """
         Get all items in a specific collection.
@@ -44,9 +82,18 @@ class ZoteroHTMLExtractor:
             List of items in the collection
         """
         print(f"Fetching items from collection {collection_key}...")
-        items = self.zot.collection_items(collection_key)
-        print(f"Found {len(items)} items in collection")
-        return items
+        try:
+            items = self.zot.collection_items(collection_key)
+            print(f"Found {len(items)} items in collection")
+            return items
+        except Exception as e:
+            print(f"Error fetching collection items: {e}")
+            print("\nThis could mean:")
+            print("  1. The collection key is incorrect")
+            print("  2. You're using a user library ID for a group collection (or vice versa)")
+            print("  3. The API key doesn't have access to this collection")
+            print("\nTip: Run with --list-collections to see available collections")
+            return []
     
     def get_item_attachments(self, item_key: str) -> List[Dict]:
         """
@@ -273,30 +320,59 @@ class ZoteroHTMLExtractor:
 
 def main():
     """Main execution function."""
+    import sys
     
     # Configuration - Replace with your actual values
-    LIBRARY_ID = os.environ.get('ZOTERO_LIBRARY_ID', '4923229')
+    LIBRARY_ID = os.environ.get('ZOTERO_LIBRARY_ID', 'YOUR_LIBRARY_ID')
     LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'group')  # 'user' or 'group'
-    API_KEY = os.environ.get('ZOTERO_API_KEY', 'FhPJ38viwCm4wdcYxc3J7gvF')
+    API_KEY = os.environ.get('ZOTERO_API_KEY', 'YOUR_API_KEY')
     COLLECTION_KEY = os.environ.get('ZOTERO_COLLECTION_KEY', '3YNCRQHJ')
     
     # Validate configuration
-    if 'YOUR' in LIBRARY_ID or 'YOUR' in API_KEY or 'YOUR' in COLLECTION_KEY:
+    if 'YOUR' in LIBRARY_ID or 'YOUR' in API_KEY:
         print("Error: Please configure your Zotero credentials")
         print("\nYou can either:")
         print("1. Set environment variables:")
-        print("   export ZOTERO_LIBRARY_ID='your_library_id'")
-        print("   export ZOTERO_API_KEY='your_api_key'")
-        print("   export ZOTERO_COLLECTION_KEY='your_collection_key'")
+        print("   For USER library:")
+        print("     export ZOTERO_LIBRARY_ID='your_user_id'")
+        print("     export ZOTERO_LIBRARY_TYPE='user'")
+        print("     export ZOTERO_API_KEY='your_api_key'")
+        print("     export ZOTERO_COLLECTION_KEY='your_collection_key'")
+        print("\n   For GROUP library:")
+        print("     export ZOTERO_LIBRARY_ID='group_id'  # NOT your user ID!")
+        print("     export ZOTERO_LIBRARY_TYPE='group'")
+        print("     export ZOTERO_API_KEY='your_api_key'")
+        print("     export ZOTERO_COLLECTION_KEY='collection_key_from_group'")
         print("\n2. Or edit this script and replace the placeholder values")
         print("\nTo get your credentials:")
-        print("- Library ID: Your user ID from https://www.zotero.org/settings/keys")
+        print("- User ID: Your user ID from https://www.zotero.org/settings/keys")
+        print("- Group ID: From group URL: https://www.zotero.org/groups/GROUP_ID/...")
         print("- API Key: Create one at https://www.zotero.org/settings/keys")
-        print("- Collection Key: Right-click collection in Zotero > 'Copy Collection Link' (use the key from the URL)")
+        print("  (Make sure to enable access to the group if using group library!)")
+        print("- Collection Key: Right-click collection > 'Copy Collection Link' > use last part of URL")
         return
     
-    # Create extractor and process collection
+    # Create extractor
     extractor = ZoteroHTMLExtractor(LIBRARY_ID, LIBRARY_TYPE, API_KEY)
+    
+    # Check for command line arguments
+    if len(sys.argv) > 1 and sys.argv[1] == '--list-collections':
+        print(f"\nLibrary Type: {LIBRARY_TYPE}")
+        print(f"Library ID: {LIBRARY_ID}")
+        extractor.print_collections()
+        return
+    
+    # Validate collection key
+    if 'YOUR' in COLLECTION_KEY:
+        print("Error: Please specify a collection key")
+        print("\nTip: Run with --list-collections to see available collections:")
+        print(f"  python {sys.argv[0]} --list-collections")
+        return
+    
+    # Process collection
+    print(f"\nLibrary Type: {LIBRARY_TYPE}")
+    print(f"Library ID: {LIBRARY_ID}")
+    print(f"Collection Key: {COLLECTION_KEY}\n")
     extractor.process_collection(COLLECTION_KEY)
 
 

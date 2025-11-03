@@ -130,7 +130,7 @@ def main():
     
     # Get configuration
     LIBRARY_ID = os.environ.get('ZOTERO_LIBRARY_ID')
-    LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'user')
+    LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'group')
     API_KEY = os.environ.get('ZOTERO_API_KEY')
     
     # Check for command line arguments
