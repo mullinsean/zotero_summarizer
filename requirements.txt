@@ -1,2 +1,7 @@
 # A good practice for managing API keys and secrets
 python-dotenv
+pyzotero
+beautifulsoup4
+html2text
+requests
+anthropic

@@ -14,19 +14,37 @@ import html2text
 from typing import Optional, Dict, List
 import time
 
+# Handle both relative and absolute imports
+try:
+    from .llm_extractor import LLMExtractor
+except ImportError:
+    from llm_extractor import LLMExtractor
+
 
 class ZoteroHTMLExtractor:
     """Extract HTML content from Zotero items and convert to Markdown notes."""
     
-    def __init__(self, library_id: str, library_type: str, api_key: str, force_reextract: bool = False):
+    def __init__(
+        self,
+        library_id: str,
+        library_type: str,
+        api_key: str,
+        force_reextract: bool = False,
+        anthropic_api_key: Optional[str] = None,
+        use_llm: bool = False,
+        llm_fallback: bool = True
+    ):
         """
         Initialize the Zotero client.
-        
+
         Args:
             library_id: Your Zotero user ID or group ID
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
             force_reextract: If True, re-extract even if markdown note already exists
+            anthropic_api_key: Anthropic API key for LLM extraction (optional)
+            use_llm: If True, use LLM extraction instead of BeautifulSoup
+            llm_fallback: If True, fall back to BeautifulSoup if LLM extraction fails
         """
         self.zot = zotero.Zotero(library_id, library_type, api_key)
         self.html_converter = html2text.HTML2Text()
@@ -34,6 +52,16 @@ class ZoteroHTMLExtractor:
         self.html_converter.ignore_images = True  # Ignore images including data URIs
         self.html_converter.body_width = 0  # Don't wrap lines
         self.force_reextract = force_reextract
+        self.use_llm = use_llm
+        self.llm_fallback = llm_fallback
+
+        # Initialize LLM extractor if API key provided
+        self.llm_extractor = None
+        if anthropic_api_key:
+            self.llm_extractor = LLMExtractor(anthropic_api_key)
+        elif use_llm:
+            print("Warning: --use-llm flag set but no ANTHROPIC_API_KEY found. Falling back to BeautifulSoup.")
+            self.use_llm = False
         
     def list_collections(self) -> List[Dict]:
         """
@@ -206,20 +234,54 @@ class ZoteroHTMLExtractor:
     def html_to_markdown(self, html_content: str) -> str:
         """
         Convert HTML content to Markdown.
-        
+
         Args:
             html_content: HTML content
-            
+
         Returns:
             Markdown formatted text
         """
         # Clean the HTML first
         cleaned_html = self.extract_text_from_html(html_content)
-        
+
         # Convert to Markdown
         markdown = self.html_converter.handle(cleaned_html)
-        
+
         return markdown.strip()
+
+    def extract_content(self, html_content: str, title: str = "") -> Optional[str]:
+        """
+        Extract article content from HTML using configured method (LLM or BeautifulSoup).
+
+        Args:
+            html_content: Raw HTML content
+            title: Optional title for context
+
+        Returns:
+            Markdown content, or None if extraction fails
+        """
+        markdown = None
+
+        # Try LLM extraction first if enabled
+        if self.use_llm and self.llm_extractor:
+            print("  Using LLM extraction...")
+            markdown = self.llm_extractor.extract_article_markdown(html_content, title)
+
+            if markdown:
+                print("  ✓ LLM extraction successful")
+                return markdown
+            elif not self.llm_fallback:
+                print("  ✗ LLM extraction failed, no fallback enabled")
+                return None
+            else:
+                print("  ⚠ LLM extraction failed, falling back to BeautifulSoup...")
+
+        # Use BeautifulSoup method (either as primary or fallback)
+        if not markdown:
+            print("  Using BeautifulSoup extraction...")
+            markdown = self.html_to_markdown(html_content)
+
+        return markdown
     
     def create_note(self, parent_key: str, markdown_content: str, title: str) -> bool:
         """
@@ -318,9 +380,14 @@ class ZoteroHTMLExtractor:
                         html_content = self.fetch_url_content(url)
                 
                 if html_content:
-                    # Convert to Markdown
-                    markdown = self.html_to_markdown(html_content)
-                    
+                    # Extract content using configured method (LLM or BeautifulSoup)
+                    markdown = self.extract_content(html_content, item_title)
+
+                    if not markdown:
+                        print("  ✗ Content extraction failed")
+                        errors += 1
+                        continue
+
                     # Create note
                     note_title = f"Markdown Extract: {attachment_title}"
                     success = self.create_note(item_key, markdown, note_title)
@@ -353,17 +420,25 @@ class ZoteroHTMLExtractor:
 def main():
     """Main execution function."""
     import sys
-    
+
     # Configuration - Replace with your actual values
     LIBRARY_ID = os.environ.get('ZOTERO_LIBRARY_ID', 'YOUR_LIBRARY_ID')
     LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'group')  # 'user' or 'group'
     API_KEY = os.environ.get('ZOTERO_API_KEY', 'YOUR_API_KEY')
     COLLECTION_KEY = os.environ.get('ZOTERO_COLLECTION_KEY', '3YNCRQHJ')
-    
+
+    # LLM Configuration
+    ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', None)
+
     # Check for flags
     force_reextract = '--force' in sys.argv
     list_collections = '--list-collections' in sys.argv
+    use_llm = '--use-llm' in sys.argv
+    llm_fallback = '--no-fallback' not in sys.argv  # Default to True, disable with --no-fallback
     
+    print(use_llm)
+
+
     # Validate configuration
     if 'YOUR' in LIBRARY_ID or 'YOUR' in API_KEY:
         print("Error: Please configure your Zotero credentials")
@@ -389,7 +464,15 @@ def main():
         return
     
     # Create extractor
-    extractor = ZoteroHTMLExtractor(LIBRARY_ID, LIBRARY_TYPE, API_KEY, force_reextract=force_reextract)
+    extractor = ZoteroHTMLExtractor(
+        LIBRARY_ID,
+        LIBRARY_TYPE,
+        API_KEY,
+        force_reextract=force_reextract,
+        anthropic_api_key=ANTHROPIC_API_KEY,
+        use_llm=use_llm,
+        llm_fallback=llm_fallback
+    )
     
     # Check for command line arguments
     if list_collections:
@@ -409,10 +492,19 @@ def main():
     print(f"\nLibrary Type: {LIBRARY_TYPE}")
     print(f"Library ID: {LIBRARY_ID}")
     print(f"Collection Key: {COLLECTION_KEY}")
+
+    # Display mode information
     if force_reextract:
         print("Mode: FORCE RE-EXTRACT (will recreate existing markdown notes)")
     else:
         print("Mode: Skip items with existing markdown notes")
+
+    # Display extraction method
+    if use_llm and ANTHROPIC_API_KEY:
+        print(f"Extraction: LLM (Claude API) - Fallback: {'Enabled' if llm_fallback else 'Disabled'}")
+    else:
+        print("Extraction: BeautifulSoup")
+
     print()
     extractor.process_collection(COLLECTION_KEY)
 
