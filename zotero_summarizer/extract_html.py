@@ -18,7 +18,7 @@ import time
 class ZoteroHTMLExtractor:
     """Extract HTML content from Zotero items and convert to Markdown notes."""
     
-    def __init__(self, library_id: str, library_type: str, api_key: str):
+    def __init__(self, library_id: str, library_type: str, api_key: str, force_reextract: bool = False):
         """
         Initialize the Zotero client.
         
@@ -26,12 +26,14 @@ class ZoteroHTMLExtractor:
             library_id: Your Zotero user ID or group ID
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
+            force_reextract: If True, re-extract even if markdown note already exists
         """
         self.zot = zotero.Zotero(library_id, library_type, api_key)
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
-        self.html_converter.ignore_images = False
+        self.html_converter.ignore_images = True  # Ignore images including data URIs
         self.html_converter.body_width = 0  # Don't wrap lines
+        self.force_reextract = force_reextract
         
     def list_collections(self) -> List[Dict]:
         """
@@ -108,6 +110,27 @@ class ZoteroHTMLExtractor:
         children = self.zot.children(item_key)
         attachments = [child for child in children if child['data'].get('itemType') == 'attachment']
         return attachments
+    
+    def has_markdown_extract_note(self, item_key: str) -> bool:
+        """
+        Check if an item already has a markdown extract note.
+        
+        Args:
+            item_key: The key of the parent item
+            
+        Returns:
+            True if the item already has a markdown extract note
+        """
+        children = self.zot.children(item_key)
+        notes = [child for child in children if child['data'].get('itemType') == 'note']
+        
+        for note in notes:
+            note_content = note['data'].get('note', '')
+            # Check if note starts with our markdown extract title pattern
+            if note_content.startswith('# Markdown Extract:'):
+                return True
+        
+        return False
     
     def is_html_attachment(self, attachment: Dict) -> bool:
         """
@@ -212,7 +235,8 @@ class ZoteroHTMLExtractor:
         """
         try:
             note_template = self.zot.item_template('note')
-            note_template['note'] = f"<h2>{title}</h2>\n<pre>{markdown_content}</pre>"
+            # Use native Markdown - Zotero handles it natively
+            note_template['note'] = f"# {title}\n\n{markdown_content}"
             note_template['parentItem'] = parent_key
             
             result = self.zot.create_items([note_template])
@@ -238,6 +262,7 @@ class ZoteroHTMLExtractor:
         
         processed = 0
         skipped = 0
+        already_extracted = 0
         errors = 0
         
         for item in items:
@@ -250,6 +275,12 @@ class ZoteroHTMLExtractor:
             if item['data']['itemType'] in ['note', 'attachment']:
                 print(f"  Skipping (is a {item['data']['itemType']})")
                 skipped += 1
+                continue
+            
+            # Check if already has markdown extract (unless force flag is set)
+            if not self.force_reextract and self.has_markdown_extract_note(item_key):
+                print(f"  ⏭️  Already has markdown extract, skipping")
+                already_extracted += 1
                 continue
             
             # Get attachments for this item
@@ -312,7 +343,8 @@ class ZoteroHTMLExtractor:
         
         print("\n" + "="*60)
         print("Processing complete!")
-        print(f"Processed: {processed}")
+        print(f"Newly processed: {processed}")
+        print(f"Already extracted: {already_extracted}")
         print(f"Skipped: {skipped}")
         print(f"Errors: {errors}")
         print("="*60)
@@ -327,6 +359,10 @@ def main():
     LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'group')  # 'user' or 'group'
     API_KEY = os.environ.get('ZOTERO_API_KEY', 'YOUR_API_KEY')
     COLLECTION_KEY = os.environ.get('ZOTERO_COLLECTION_KEY', '3YNCRQHJ')
+    
+    # Check for flags
+    force_reextract = '--force' in sys.argv
+    list_collections = '--list-collections' in sys.argv
     
     # Validate configuration
     if 'YOUR' in LIBRARY_ID or 'YOUR' in API_KEY:
@@ -353,10 +389,10 @@ def main():
         return
     
     # Create extractor
-    extractor = ZoteroHTMLExtractor(LIBRARY_ID, LIBRARY_TYPE, API_KEY)
+    extractor = ZoteroHTMLExtractor(LIBRARY_ID, LIBRARY_TYPE, API_KEY, force_reextract=force_reextract)
     
     # Check for command line arguments
-    if len(sys.argv) > 1 and sys.argv[1] == '--list-collections':
+    if list_collections:
         print(f"\nLibrary Type: {LIBRARY_TYPE}")
         print(f"Library ID: {LIBRARY_ID}")
         extractor.print_collections()
@@ -372,7 +408,12 @@ def main():
     # Process collection
     print(f"\nLibrary Type: {LIBRARY_TYPE}")
     print(f"Library ID: {LIBRARY_ID}")
-    print(f"Collection Key: {COLLECTION_KEY}\n")
+    print(f"Collection Key: {COLLECTION_KEY}")
+    if force_reextract:
+        print("Mode: FORCE RE-EXTRACT (will recreate existing markdown notes)")
+    else:
+        print("Mode: Skip items with existing markdown notes")
+    print()
     extractor.process_collection(COLLECTION_KEY)
 
 
