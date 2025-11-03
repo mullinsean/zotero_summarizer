@@ -29,10 +29,10 @@ python extract_html.py --list-collections
 # Force re-extraction (even if markdown notes exist)
 python extract_html.py --force
 
-# Use LLM (Claude API) for extraction instead of BeautifulSoup
+# Use LLM polish (applies Claude polish to Trafilatura output)
 python extract_html.py --use-llm
 
-# Use LLM without fallback to BeautifulSoup (fail if LLM fails)
+# Use LLM polish without fallback (fail if LLM polish fails)
 python extract_html.py --use-llm --no-fallback
 
 # Run diagnostic utility for troubleshooting
@@ -64,28 +64,31 @@ The `ZoteroHTMLExtractor` class is the central component orchestrating all funct
 - `has_markdown_extract_note()` - Checks if item already has extracted markdown
 - `download_attachment()` - Retrieves attachment from Zotero storage
 - `fetch_url_content()` - Fetches HTML from a URL (fallback)
-- `extract_text_from_html()` - Parses and cleans HTML using BeautifulSoup
-- `html_to_markdown()` - Converts HTML to Markdown format (BeautifulSoup method)
-- `extract_content()` - **NEW** - Unified extraction method supporting both LLM and BeautifulSoup with configurable fallback
+- `trafilatura_extract()` - **DEFAULT** - Extracts main article content using Trafilatura
+- `extract_text_from_html()` - Parses and cleans HTML using BeautifulSoup (fallback)
+- `html_to_markdown()` - Converts HTML to Markdown format (BeautifulSoup fallback method)
+- `extract_content()` - Unified extraction method: Trafilatura → optional LLM polish → fallback to BeautifulSoup
 
 **Main Processing:**
 - `process_collection()` - Orchestrates the extraction workflow
 
 ### LLM Module: `zotero_summarizer/llm_extractor.py`
 
-The `LLMExtractor` class provides AI-powered content extraction:
+The `LLMExtractor` class provides AI-powered content polishing:
 
 **Methods:**
 - `__init__()` - Initializes Anthropic client with API key and model selection
-- `extract_article_markdown()` - Uses Claude API to intelligently extract article content from HTML
-- `set_model()` - Change the Claude model (e.g., claude-3-5-haiku, claude-3-5-sonnet)
+- `polish_markdown()` - **PRIMARY** - Polishes Trafilatura-extracted markdown for better formatting
+- `extract_article_markdown()` - Legacy method for direct HTML extraction (kept for compatibility)
+- `preprocess_html()` - Removes scripts, styles, and non-content elements before sending to LLM
+- `set_model()` - Change the Claude model (e.g., claude-haiku-4-5, claude-3-5-sonnet)
 
 **Key Features:**
-- Intelligently identifies main article content
-- Removes navigation, ads, sidebars, and other non-content elements
-- Preserves article structure, headings, links, and formatting
-- Direct conversion to clean Markdown
-- More accurate than BeautifulSoup for complex web pages
+- Polishes Trafilatura output for improved formatting and readability
+- Fixes markdown inconsistencies and structural issues
+- Preserves all content and links from original extraction
+- Uses Claude Haiku 4.5 by default for cost efficiency
+- Handles content of any size (works with already-extracted markdown)
 
 ### Utility Module: `zotero_summarizer/zotero_diagnose.py`
 
@@ -102,10 +105,10 @@ Diagnostic tool for troubleshooting Zotero connections and library access. Provi
    - For each HTML file:
      - Try downloading from Zotero snapshot first
      - Fall back to fetching from URL
-     - **Extract content using selected method:**
-       - **If `--use-llm` flag:** Use Claude API for intelligent extraction
-       - **If LLM fails and fallback enabled:** Fall back to BeautifulSoup
-       - **Default:** Use BeautifulSoup method
+     - **Extract content using Trafilatura (default):**
+       - Trafilatura extracts main article content
+       - **If `--use-llm` flag:** Apply Claude polish to improve formatting
+       - **If Trafilatura fails and fallback enabled:** Fall back to BeautifulSoup
      - Create note via Zotero API
      - Rate limit (1-second delay between API calls)
 
@@ -115,18 +118,28 @@ Diagnostic tool for troubleshooting Zotero connections and library access. Provi
 
 ### Extraction Methods
 
-**LLM Extraction (--use-llm):**
-- Uses Claude API to intelligently identify article content
-- Removes ads, navigation, and other non-content elements automatically
-- Better quality for complex web pages
-- Requires `ANTHROPIC_API_KEY` environment variable
-- Supports fallback to BeautifulSoup (default) or fail-fast with `--no-fallback`
+**Trafilatura Extraction (default):**
+- Purpose-built for extracting main article content from web pages
+- Intelligently identifies and extracts article content
+- Handles documents of any size
+- Outputs clean markdown directly
+- Free, fast, and accurate for most web pages
+- **Default method for all extractions**
 
-**BeautifulSoup Extraction (default):**
+**LLM Polish (--use-llm):**
+- Applies Claude API to polish Trafilatura output
+- Improves markdown formatting and structure
+- Fixes inconsistencies and artifacts
+- Enhances readability
+- Requires `ANTHROPIC_API_KEY` environment variable
+- Works with content of any size (since it polishes extracted markdown, not raw HTML)
+
+**BeautifulSoup Extraction (fallback only):**
 - Rule-based HTML cleaning
 - Removes script, style, nav, footer, header tags
 - Converts to Markdown using html2text
-- Free and fast but less accurate for complex layouts
+- Used only as fallback when Trafilatura fails
+- Can be disabled with `--no-fallback`
 
 ## Configuration & Environment
 
@@ -144,11 +157,12 @@ ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude
 
 ### Key Dependencies
 - **pyzotero** - Zotero API client
-- **beautifulsoup4** - HTML parsing and cleaning
-- **html2text** - HTML to Markdown conversion
+- **trafilatura** - Main content extraction from web pages (primary extraction method)
+- **beautifulsoup4** - HTML parsing and cleaning (fallback only)
+- **html2text** - HTML to Markdown conversion (fallback only)
 - **requests** - HTTP library for URL fetching
 - **python-dotenv** - Environment variable management
-- **anthropic** - Anthropic Claude API client (optional, for LLM extraction)
+- **anthropic** - Anthropic Claude API client (optional, for LLM polish)
 
 ### Python Version
 - **Required:** Python 3.12+
@@ -167,19 +181,28 @@ Supports both user libraries and group libraries. The `ZOTERO_LIBRARY_TYPE` envi
 
 ### HTML Processing Pipelines
 
-**LLM Pipeline (--use-llm):**
-1. Send raw HTML to Claude API with extraction prompt
-2. Claude intelligently identifies main article content
-3. Claude removes non-content elements (ads, navigation, etc.)
-4. Claude converts directly to clean Markdown
-5. Fallback to BeautifulSoup pipeline if enabled and LLM fails
+**Trafilatura Pipeline (default):**
+1. Trafilatura analyzes HTML structure
+2. Identifies main content area using heuristics
+3. Extracts article content (text, headings, links, tables)
+4. Removes ads, navigation, footers, and other non-content
+5. Outputs clean Markdown directly
+6. Handles documents of any size
 
-**BeautifulSoup Pipeline (default):**
+**Trafilatura + LLM Polish Pipeline (--use-llm):**
+1. Trafilatura extracts main content to Markdown
+2. Send extracted Markdown to Claude API
+3. Claude polishes formatting and structure
+4. Claude fixes any extraction artifacts
+5. Returns enhanced Markdown
+6. Fallback to unpolished Trafilatura output if LLM fails
+
+**BeautifulSoup Pipeline (fallback only):**
 1. Parse HTML with BeautifulSoup
 2. Remove script, style, nav, footer, and header tags
 3. Extract text content
 4. Convert to Markdown using html2text
-5. Preserve links; ignore images and data URIs
+5. Used only when Trafilatura fails
 
 ## Testing & Validation
 

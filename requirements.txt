@@ -5,3 +5,4 @@ beautifulsoup4
 html2text
 requests
 anthropic
+trafilatura

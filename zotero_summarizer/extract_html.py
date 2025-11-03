@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 import html2text
 from typing import Optional, Dict, List
 import time
+import trafilatura
 
 # Handle both relative and absolute imports
 try:
@@ -233,7 +234,7 @@ class ZoteroHTMLExtractor:
     
     def html_to_markdown(self, html_content: str) -> str:
         """
-        Convert HTML content to Markdown.
+        Convert HTML content to Markdown using BeautifulSoup + html2text.
 
         Args:
             html_content: HTML content
@@ -249,9 +250,48 @@ class ZoteroHTMLExtractor:
 
         return markdown.strip()
 
+    def trafilatura_extract(self, html_content: str) -> Optional[str]:
+        """
+        Extract article content using Trafilatura.
+
+        Trafilatura is purpose-built for extracting main content from web pages
+        and handles large documents much better than BeautifulSoup.
+
+        Args:
+            html_content: Raw HTML content
+
+        Returns:
+            Extracted markdown content, or None if extraction fails
+        """
+        try:
+            # Extract main content with Trafilatura
+            # output_format='markdown' gives us markdown output directly
+            # include_links=True preserves hyperlinks
+            # include_images=False skips images (consistent with our config)
+            markdown = trafilatura.extract(
+                html_content,
+                output_format='markdown',
+                include_links=True,
+                include_images=False,
+                include_tables=True
+            )
+
+            if markdown:
+                return markdown.strip()
+            else:
+                print("  ⚠ Trafilatura returned no content")
+                return None
+
+        except Exception as e:
+            print(f"  ✗ Trafilatura extraction error: {e}")
+            return None
+
     def extract_content(self, html_content: str, title: str = "") -> Optional[str]:
         """
-        Extract article content from HTML using configured method (LLM or BeautifulSoup).
+        Extract article content from HTML using configured method.
+
+        Default: Trafilatura extraction
+        With --use-llm: Trafilatura extraction → LLM polish
 
         Args:
             html_content: Raw HTML content
@@ -260,26 +300,36 @@ class ZoteroHTMLExtractor:
         Returns:
             Markdown content, or None if extraction fails
         """
-        markdown = None
+        # Step 1: Extract content with Trafilatura (default method)
+        print("  Using Trafilatura extraction...")
+        markdown = self.trafilatura_extract(html_content)
 
-        # Try LLM extraction first if enabled
+        if not markdown:
+            # Trafilatura failed, try BeautifulSoup fallback if enabled
+            if self.llm_fallback:
+                print("  ⚠ Trafilatura failed, falling back to BeautifulSoup...")
+                markdown = self.html_to_markdown(html_content)
+            else:
+                print("  ✗ Trafilatura extraction failed, no fallback enabled")
+                return None
+
+        if not markdown:
+            return None
+
+        # Step 2: Optional LLM polish if enabled
         if self.use_llm and self.llm_extractor:
-            print("  Using LLM extraction...")
-            markdown = self.llm_extractor.extract_article_markdown(html_content, title)
+            print("  Applying LLM polish to extracted content...")
+            polished = self.llm_extractor.polish_markdown(markdown, title)
 
-            if markdown:
-                print("  ✓ LLM extraction successful")
-                return markdown
+            if polished:
+                print("  ✓ LLM polish successful")
+                return polished
             elif not self.llm_fallback:
-                print("  ✗ LLM extraction failed, no fallback enabled")
+                print("  ✗ LLM polish failed, no fallback enabled")
                 return None
             else:
-                print("  ⚠ LLM extraction failed, falling back to BeautifulSoup...")
-
-        # Use BeautifulSoup method (either as primary or fallback)
-        if not markdown:
-            print("  Using BeautifulSoup extraction...")
-            markdown = self.html_to_markdown(html_content)
+                print("  ⚠ LLM polish failed, using unpolished Trafilatura output")
+                return markdown
 
         return markdown
     
@@ -501,9 +551,10 @@ def main():
 
     # Display extraction method
     if use_llm and ANTHROPIC_API_KEY:
-        print(f"Extraction: LLM (Claude API) - Fallback: {'Enabled' if llm_fallback else 'Disabled'}")
+        print(f"Extraction: Trafilatura + LLM Polish (Claude API)")
     else:
-        print("Extraction: BeautifulSoup")
+        print("Extraction: Trafilatura (default)")
+    print(f"Fallback: {'Enabled (BeautifulSoup)' if llm_fallback else 'Disabled'}")
 
     print()
     extractor.process_collection(COLLECTION_KEY)
