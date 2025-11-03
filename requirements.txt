@@ -1,0 +1,2 @@
+# A good practice for managing API keys and secrets
+python-dotenv
