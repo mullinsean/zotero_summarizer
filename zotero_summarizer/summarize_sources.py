@@ -18,6 +18,7 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, List
 from anthropic import Anthropic
+import markdown
 
 # Handle both relative and absolute imports
 try:
@@ -329,21 +330,47 @@ class ZoteroSourceSummarizer:
             print(f"  ❌ Error calling LLM: {e}")
             return None
 
+    def markdown_to_html(self, markdown_content: str) -> str:
+        """
+        Convert markdown content to HTML for Zotero notes.
+
+        Args:
+            markdown_content: Markdown content
+
+        Returns:
+            HTML formatted content
+        """
+        try:
+            # Convert markdown to HTML with extensions
+            html_content = markdown.markdown(
+                markdown_content,
+                extensions=['extra', 'nl2br', 'sane_lists']
+            )
+            return html_content
+        except Exception as e:
+            print(f"  ⚠️  Warning: Markdown conversion failed: {e}")
+            # Fall back to original markdown if conversion fails
+            return markdown_content.replace('\n', '<br>')
+
     def create_summary_note(self, parent_key: str, summary: str, source_title: str) -> bool:
         """
         Create a summary note in Zotero attached to a parent item.
 
         Args:
             parent_key: The key of the parent item
-            summary: The summary content
+            summary: The summary content (markdown format)
             source_title: Title of the source
 
         Returns:
             True if note was created successfully
         """
         try:
+            # Convert markdown to HTML for proper Zotero rendering
+            markdown_with_title = f"# AI Summary: {source_title}\n\n{summary}"
+            html_content = self.markdown_to_html(markdown_with_title)
+
             note_template = self.zot.item_template('note')
-            note_template['note'] = f"# AI Summary: {source_title}\n\n{summary}"
+            note_template['note'] = html_content
             note_template['parentItem'] = parent_key
 
             result = self.zot.create_items([note_template])
