@@ -34,7 +34,8 @@ class ZoteroHTMLExtractor:
         force_reextract: bool = False,
         anthropic_api_key: Optional[str] = None,
         use_llm: bool = False,
-        llm_fallback: bool = True
+        llm_fallback: bool = True,
+        verbose: bool = False
     ):
         """
         Initialize the Zotero client.
@@ -47,6 +48,7 @@ class ZoteroHTMLExtractor:
             anthropic_api_key: Anthropic API key for LLM extraction (optional)
             use_llm: If True, use LLM extraction instead of BeautifulSoup
             llm_fallback: If True, fall back to BeautifulSoup if LLM extraction fails
+            verbose: If True, show detailed information about all child items
         """
         self.zot = zotero.Zotero(library_id, library_type, api_key)
         self.html_converter = html2text.HTML2Text()
@@ -56,6 +58,7 @@ class ZoteroHTMLExtractor:
         self.force_reextract = force_reextract
         self.use_llm = use_llm
         self.llm_fallback = llm_fallback
+        self.verbose = verbose
 
         # Initialize LLM extractor if API key provided
         self.llm_extractor = None
@@ -428,11 +431,35 @@ class ZoteroHTMLExtractor:
                 already_extracted += 1
                 continue
             
+            # Get all children for this item (for verbose output)
+            if self.verbose:
+                children = self.zot.children(item_key)
+                print(f"  📋 All child items ({len(children)} total):")
+                for idx, child in enumerate(children, 1):
+                    child_type = child['data'].get('itemType', 'unknown')
+                    child_title = child['data'].get('title', 'Untitled')
+
+                    if child_type == 'note':
+                        note_preview = child['data'].get('note', '')[:80].replace('\n', ' ')
+                        print(f"    {idx}. 📝 NOTE: {note_preview}...")
+                    elif child_type == 'attachment':
+                        content_type = child['data'].get('contentType', 'unknown')
+                        filename = child['data'].get('filename', 'no filename')
+                        link_mode = child['data'].get('linkMode', 'unknown')
+                        url = child['data'].get('url', 'no url')
+                        print(f"    {idx}. 📎 ATTACHMENT: {child_title}")
+                        print(f"        - Filename: {filename}")
+                        print(f"        - Content Type: {content_type}")
+                        print(f"        - Link Mode: {link_mode}")
+                        print(f"        - URL: {url}")
+                    else:
+                        print(f"    {idx}. ❓ {child_type.upper()}: {child_title}")
+
             # Get attachments for this item
             attachments = self.get_item_attachments(item_key)
-            
+
             if not attachments:
-                print("  No attachments found")
+                print("  ⚠️  No attachments found")
                 skipped += 1
                 continue
             
@@ -445,6 +472,10 @@ class ZoteroHTMLExtractor:
 
                 # Check if it's an HTML attachment
                 if not self.is_html_attachment(attachment):
+                    if self.verbose:
+                        att_title = attachment['data'].get('title', 'Untitled')
+                        att_content = attachment['data'].get('contentType', 'unknown')
+                        print(f"  ⏭️  Skipping non-HTML attachment: {att_title} ({att_content})")
                     continue
 
                 html_found = True
@@ -523,8 +554,7 @@ def main():
     list_collections = '--list-collections' in sys.argv
     use_llm = '--use-llm' in sys.argv
     llm_fallback = '--no-fallback' not in sys.argv  # Default to True, disable with --no-fallback
-    
-    print(use_llm)
+    verbose = '--verbose' in sys.argv or '-v' in sys.argv
 
 
     # Validate configuration
@@ -559,7 +589,8 @@ def main():
         force_reextract=force_reextract,
         anthropic_api_key=ANTHROPIC_API_KEY,
         use_llm=use_llm,
-        llm_fallback=llm_fallback
+        llm_fallback=llm_fallback,
+        verbose=verbose
     )
     
     # Check for command line arguments
@@ -574,6 +605,12 @@ def main():
         print("Error: Please specify a collection key")
         print("\nTip: Run with --list-collections to see available collections:")
         print(f"  python {sys.argv[0]} --list-collections")
+        print("\nAvailable flags:")
+        print("  --list-collections  : List all collections")
+        print("  --force            : Re-extract items with existing notes")
+        print("  --use-llm          : Use LLM polish on extracted content")
+        print("  --no-fallback      : Disable BeautifulSoup fallback")
+        print("  --verbose or -v    : Show detailed info about all child items")
         return
     
     # Process collection
@@ -593,6 +630,9 @@ def main():
     else:
         print("Extraction: Trafilatura (default)")
     print(f"Fallback: {'Enabled (BeautifulSoup)' if llm_fallback else 'Disabled'}")
+
+    if verbose:
+        print("Verbose mode: ON (showing all child items)")
 
     print()
     extractor.process_collection(COLLECTION_KEY)
