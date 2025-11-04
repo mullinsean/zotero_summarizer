@@ -97,18 +97,19 @@ class ZoteroSourceSummarizer:
 
     def get_collection_items(self, collection_key: str) -> List[Dict]:
         """
-        Get all items in a specific collection.
+        Get all top-level items in a specific collection (excluding child items).
 
         Args:
             collection_key: The key of the collection to process
 
         Returns:
-            List of items in the collection
+            List of top-level items in the collection (no attachments/notes)
         """
-        print(f"Fetching items from collection {collection_key}...")
+        print(f"Fetching top-level items from collection {collection_key}...")
         try:
-            items = self.zot.collection_items(collection_key)
-            print(f"Found {len(items)} items in collection")
+            # Use collection_items_top to only get parent items, not child attachments/notes
+            items = self.zot.collection_items_top(collection_key)
+            print(f"Found {len(items)} top-level items in collection")
             return items
         except Exception as e:
             print(f"Error fetching collection items: {e}")
@@ -121,16 +122,20 @@ class ZoteroSourceSummarizer:
 
     def get_item_attachments(self, item_key: str) -> List[Dict]:
         """
-        Get all attachments for a specific item.
+        Get all attachments for a specific item (excludes notes).
 
         Args:
             item_key: The key of the parent item
 
         Returns:
-            List of attachment items
+            List of attachment items (only actual file attachments, not notes)
         """
         children = self.zot.children(item_key)
-        attachments = [child for child in children if child['data'].get('itemType') == 'attachment']
+        # Filter to only attachment items (excludes notes and other child types)
+        attachments = [
+            child for child in children
+            if child['data'].get('itemType') == 'attachment'
+        ]
         return attachments
 
     def has_summary_note(self, item_key: str) -> bool:
@@ -408,8 +413,12 @@ class ZoteroSourceSummarizer:
         errors = 0
 
         for item in items:
-            # Skip if the item itself is an attachment or note
-            if item['data'].get('itemType') in ['attachment', 'note']:
+            # Items from collection_items_top should only be parent items,
+            # but double-check to be safe
+            item_type = item['data'].get('itemType')
+            if item_type in ['attachment', 'note']:
+                print(f"  ⚠️  Skipping {item_type} (should not appear in top-level items)")
+                skipped += 1
                 continue
 
             item_data = item['data']
@@ -437,11 +446,16 @@ class ZoteroSourceSummarizer:
             content_type = None
 
             for attachment in attachments:
+                # Verify this is actually an attachment (not a note)
+                if attachment['data'].get('itemType') != 'attachment':
+                    continue
+
                 attachment_title = attachment['data'].get('title', 'Untitled')
                 attachment_key = attachment['key']
                 attachment_url = attachment['data'].get('url')
+                link_mode = attachment['data'].get('linkMode', '')
 
-                # Try HTML extraction
+                # Try HTML extraction (check both MIME type and file extension)
                 if self.is_html_attachment(attachment):
                     print(f"  📄 Found HTML attachment: {attachment_title}")
                     print(f"  📥 Downloading and extracting...")
@@ -453,7 +467,7 @@ class ZoteroSourceSummarizer:
                             content_type = "HTML"
                             break
 
-                # Try PDF extraction
+                # Try PDF extraction (check both MIME type and file extension)
                 elif self.is_pdf_attachment(attachment):
                     print(f"  📄 Found PDF attachment: {attachment_title}")
                     print(f"  📥 Downloading and extracting...")
