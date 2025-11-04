@@ -202,12 +202,13 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
             print(f"  ❌ Error calling LLM: {e}")
             return None
 
-    def process_collection(self, collection_key: str):
+    def process_collection(self, collection_key: str, compile_collection: bool = False):
         """
         Process all items in a collection and generate summaries.
 
         Args:
             collection_key: The key of the collection to process
+            compile_collection: If True, save all summaries to a single HTML file
         """
         items = self.get_collection_items(collection_key)
 
@@ -223,6 +224,10 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
         skipped = 0
         already_summarized = 0
         errors = 0
+        reused_summaries = 0
+
+        # For compiled collection file
+        summaries_collection = []
 
         for item in items:
             # Items from collection_items_top should only be parent items,
@@ -239,14 +244,24 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
 
             print(f"\n📚 Processing: {item_title}")
 
-            # Check if already summarized (unless force flag is set)
-            if not self.force_resummary and self.has_summary_note(item_key):
-                print(f"  ⏭️  Already has summary note, skipping...")
-                already_summarized += 1
-                continue
-
             # Print child items in verbose mode
             self.print_child_items(item_key)
+
+            # Check if already summarized
+            existing_summary_html = None
+            if self.has_summary_note(item_key):
+                if not self.force_resummary:
+                    print(f"  ♻️  Found existing summary note, reusing...")
+                    existing_summary_html = self.get_note_with_prefix(item_key, 'AI Summary:')
+                    if existing_summary_html and compile_collection:
+                        summaries_collection.append({
+                            'title': item_title,
+                            'html': existing_summary_html
+                        })
+                    reused_summaries += 1
+                    continue
+                else:
+                    print(f"  🔄 Found existing summary note, but --force set, regenerating...")
 
             # Get attachments for this item
             attachments = self.get_item_attachments(item_key)
@@ -317,6 +332,15 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
             note_title = f"AI Summary: {item_title}"
             if self.create_note(item_key, summary, note_title, convert_markdown=True):
                 processed += 1
+                # Add to collection if compiling
+                if compile_collection:
+                    # Get the HTML version we just saved
+                    summary_html = self.get_note_with_prefix(item_key, 'AI Summary:')
+                    if summary_html:
+                        summaries_collection.append({
+                            'title': item_title,
+                            'html': summary_html
+                        })
             else:
                 errors += 1
 
@@ -330,10 +354,170 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
         print(f"{'='*80}")
         print(f"Total items processed: {len(items)}")
         print(f"  ✅ Successfully summarized: {processed}")
-        print(f"  ⏭️  Already had summaries: {already_summarized}")
+        print(f"  ♻️  Reused existing summaries: {reused_summaries}")
         print(f"  ⚠️  Skipped (no attachments): {skipped}")
         print(f"  ❌ Errors: {errors}")
         print()
+
+        # Build compiled collection file if requested
+        if compile_collection and summaries_collection:
+            self.build_compiled_html(collection_key, summaries_collection)
+
+    def build_compiled_html(self, collection_key: str, summaries: list):
+        """
+        Build a single HTML file with all summaries and a table of contents.
+
+        Args:
+            collection_key: The collection key (used in filename)
+            summaries: List of dicts with 'title' and 'html' keys
+        """
+        import re
+        from datetime import datetime
+
+        print(f"\n{'='*80}")
+        print(f"Building Compiled Collection HTML")
+        print(f"{'='*80}\n")
+
+        # Create safe filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"collection_{collection_key}_{timestamp}.html"
+
+        # Build HTML document
+        html_parts = []
+
+        # HTML header
+        html_parts.append("""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Collection Summaries</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            background-color: #2c3e50;
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }
+        .header h1 {
+            margin: 0 0 10px 0;
+        }
+        .header .meta {
+            opacity: 0.8;
+            font-size: 14px;
+        }
+        .toc {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .toc h2 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .toc ol {
+            line-height: 2;
+        }
+        .toc a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .summary {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .summary h1 {
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        .back-to-top {
+            display: inline-block;
+            margin-top: 20px;
+            color: #3498db;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .back-to-top:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+""")
+
+        # Header
+        html_parts.append(f"""
+    <div class="header">
+        <h1>📚 Collection Summaries</h1>
+        <div class="meta">
+            Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}<br>
+            Total Summaries: {len(summaries)}
+        </div>
+    </div>
+""")
+
+        # Table of Contents
+        html_parts.append("""
+    <div class="toc">
+        <h2>📑 Table of Contents</h2>
+        <ol>
+""")
+
+        for idx, summary in enumerate(summaries, 1):
+            anchor = f"summary-{idx}"
+            title = summary['title']
+            html_parts.append(f'            <li><a href="#{anchor}">{title}</a></li>\n')
+
+        html_parts.append("""        </ol>
+    </div>
+""")
+
+        # Individual summaries
+        for idx, summary in enumerate(summaries, 1):
+            anchor = f"summary-{idx}"
+            html_content = summary['html']
+
+            html_parts.append(f"""
+    <div class="summary" id="{anchor}">
+{html_content}
+        <a href="#" class="back-to-top">↑ Back to top</a>
+    </div>
+""")
+
+        # HTML footer
+        html_parts.append("""
+</body>
+</html>
+""")
+
+        # Write file
+        full_html = ''.join(html_parts)
+
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(full_html)
+            print(f"  ✅ Compiled HTML saved to: {filename}")
+            print(f"  📊 Contains {len(summaries)} summaries")
+        except Exception as e:
+            print(f"  ❌ Error saving compiled HTML: {e}")
 
 
 def load_custom_prompt(prompt_file: str = "summarize_prompt.txt") -> str:
@@ -416,6 +600,11 @@ def main():
         action='store_true',
         help='Show detailed information about all child items'
     )
+    parser.add_argument(
+        '--compile',
+        action='store_true',
+        help='Save all summaries to a single HTML file with table of contents'
+    )
 
     args = parser.parse_args()
 
@@ -470,8 +659,10 @@ def main():
     # Process the collection
     print(f"Processing collection: {collection_key}")
     print(f"Using model: {args.model}")
+    if args.compile:
+        print(f"Compile mode: ON (will save combined HTML file)")
     print()
-    summarizer.process_collection(collection_key)
+    summarizer.process_collection(collection_key, compile_collection=args.compile)
 
 
 if __name__ == '__main__':

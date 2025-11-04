@@ -236,6 +236,29 @@ class ZoteroBaseProcessor:
 
         return False
 
+    def get_note_with_prefix(self, item_key: str, prefix: str) -> Optional[str]:
+        """
+        Get the content of a note starting with a specific prefix.
+
+        Args:
+            item_key: The key of the parent item
+            prefix: The prefix to search for (e.g., "AI Summary:", "Markdown Extract:")
+
+        Returns:
+            The HTML content of the note, or None if not found
+        """
+        children = self.get_item_children(item_key)
+        notes = [child for child in children if child['data'].get('itemType') == 'note']
+
+        for note in notes:
+            note_content = note['data'].get('note', '')
+            # Notes are stored as HTML, so check for HTML heading
+            html_prefix = f"<h1>{prefix}"
+            if html_prefix in note_content[:200]:  # Check first 200 chars for the heading
+                return note_content
+
+        return None
+
     def markdown_to_html(self, markdown_content: str) -> str:
         """
         Convert markdown content to HTML for Zotero notes.
