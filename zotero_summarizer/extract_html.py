@@ -80,7 +80,7 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
         Returns:
             True if the item already has a markdown extract note
         """
-        return self.has_note_with_prefix(item_key, '# Markdown Extract:')
+        return self.has_note_with_prefix(item_key, 'Markdown Extract:')
 
     def fetch_url_content(self, url: str) -> Optional[str]:
         """

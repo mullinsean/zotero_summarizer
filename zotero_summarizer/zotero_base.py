@@ -213,9 +213,12 @@ class ZoteroBaseProcessor:
         """
         Check if an item already has a note starting with a specific prefix.
 
+        Since notes are stored as HTML, we check for the HTML version of the prefix.
+        For markdown headings like "# AI Summary:", we check for "<h1>AI Summary:"
+
         Args:
             item_key: The key of the parent item
-            prefix: The prefix to search for (e.g., "# AI Summary:", "# Markdown Extract:")
+            prefix: The prefix to search for (e.g., "AI Summary:", "Markdown Extract:")
 
         Returns:
             True if the item has a note with that prefix
@@ -225,8 +228,10 @@ class ZoteroBaseProcessor:
 
         for note in notes:
             note_content = note['data'].get('note', '')
-            # Check if note starts with the prefix
-            if note_content.startswith(prefix):
+            # Notes are stored as HTML, so check for HTML heading
+            # The markdown "# Title" becomes "<h1>Title</h1>" in HTML
+            html_prefix = f"<h1>{prefix}"
+            if html_prefix in note_content[:200]:  # Check first 200 chars for the heading
                 return True
 
         return False

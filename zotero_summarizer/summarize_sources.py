@@ -73,7 +73,7 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
         Returns:
             True if the item already has a summary note
         """
-        return self.has_note_with_prefix(item_key, '# AI Summary:')
+        return self.has_note_with_prefix(item_key, 'AI Summary:')
 
     def extract_text_from_html(self, html_content: bytes, attachment_url: Optional[str] = None) -> Optional[str]:
         """
