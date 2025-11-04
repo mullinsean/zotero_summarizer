@@ -7,10 +7,12 @@ and determines whether they are digital (selectable text) or scanned (OCR).
 """
 
 import os
+import re
 from pyzotero import zotero
 from pypdf import PdfReader
 from typing import Optional, Dict, List
 import io
+import fitz  # PyMuPDF
 
 
 class ZoteroPDFAnalyzer:
@@ -20,7 +22,9 @@ class ZoteroPDFAnalyzer:
         self,
         library_id: str,
         library_type: str,
-        api_key: str
+        api_key: str,
+        output_dir: str = 'pdf_extracts',
+        extract_text: bool = False
     ):
         """
         Initialize the Zotero client.
@@ -29,8 +33,17 @@ class ZoteroPDFAnalyzer:
             library_id: Your Zotero user ID or group ID
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
+            output_dir: Directory to save extracted text files (default: 'pdf_extracts')
+            extract_text: If True, extract text from digital PDFs
         """
         self.zot = zotero.Zotero(library_id, library_type, api_key)
+        self.output_dir = output_dir
+        self.extract_text = extract_text
+
+        # Create output directory if text extraction is enabled
+        if self.extract_text and not os.path.exists(self.output_dir):
+            os.makedirs(self.output_dir)
+            print(f"Created output directory: {self.output_dir}")
 
     def list_collections(self) -> List[Dict]:
         """
@@ -209,6 +222,96 @@ class ZoteroPDFAnalyzer:
                 'error': str(e)
             }
 
+    def extract_text_from_pdf(self, pdf_content: bytes) -> Optional[str]:
+        """
+        Extract text from a PDF using PyMuPDF.
+
+        Args:
+            pdf_content: The PDF file content as bytes
+
+        Returns:
+            Extracted text as string, or None if extraction failed
+        """
+        try:
+            # Open PDF from bytes
+            pdf_document = fitz.open(stream=pdf_content, filetype="pdf")
+
+            extracted_text = []
+
+            # Extract text from each page
+            for page_num in range(len(pdf_document)):
+                page = pdf_document[page_num]
+                text = page.get_text()
+                if text.strip():
+                    extracted_text.append(f"--- Page {page_num + 1} ---\n")
+                    extracted_text.append(text)
+                    extracted_text.append("\n\n")
+
+            pdf_document.close()
+
+            return "".join(extracted_text) if extracted_text else None
+
+        except Exception as e:
+            print(f"  ❌ Error extracting text: {e}")
+            return None
+
+    def sanitize_filename(self, filename: str) -> str:
+        """
+        Convert a string to a safe filename.
+
+        Args:
+            filename: The original filename/title
+
+        Returns:
+            Sanitized filename safe for filesystem
+        """
+        # Remove or replace problematic characters
+        filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+        # Replace spaces with underscores
+        filename = filename.replace(' ', '_')
+        # Limit length
+        if len(filename) > 200:
+            filename = filename[:200]
+        # Remove leading/trailing dots and spaces
+        filename = filename.strip('. ')
+        return filename if filename else 'untitled'
+
+    def save_text_to_file(self, text: str, item_title: str, attachment_title: str, attachment_key: str) -> Optional[str]:
+        """
+        Save extracted text to a file.
+
+        Args:
+            text: The extracted text to save
+            item_title: Title of the parent item
+            attachment_title: Title of the attachment
+            attachment_key: Key of the attachment (used for uniqueness)
+
+        Returns:
+            Path to the saved file, or None if save failed
+        """
+        try:
+            # Create a safe filename
+            safe_item = self.sanitize_filename(item_title)
+            safe_attachment = self.sanitize_filename(attachment_title)
+
+            # Use attachment key to ensure uniqueness
+            filename = f"{safe_item}_{safe_attachment}_{attachment_key}.txt"
+            filepath = os.path.join(self.output_dir, filename)
+
+            # Write the text to file
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(f"Source: {item_title}\n")
+                f.write(f"Attachment: {attachment_title}\n")
+                f.write(f"Attachment Key: {attachment_key}\n")
+                f.write(f"{'='*80}\n\n")
+                f.write(text)
+
+            return filepath
+
+        except Exception as e:
+            print(f"  ❌ Error saving text to file: {e}")
+            return None
+
     def analyze_collection(self, collection_key: str):
         """
         Analyze all PDF attachments in a collection.
@@ -287,6 +390,23 @@ class ZoteroPDFAnalyzer:
 
                     if analysis['type'] == 'digital':
                         digital_count += 1
+
+                        # Extract and save text if enabled and PDF is digital
+                        if self.extract_text:
+                            print(f"   💾 Extracting text...")
+                            extracted_text = self.extract_text_from_pdf(pdf_content)
+
+                            if extracted_text:
+                                saved_path = self.save_text_to_file(
+                                    extracted_text,
+                                    item_title,
+                                    attachment_title,
+                                    attachment_key
+                                )
+                                if saved_path:
+                                    print(f"   ✅ Saved to: {saved_path}")
+                            else:
+                                print(f"   ⚠️  No text could be extracted")
                     else:
                         scanned_count += 1
 
@@ -326,6 +446,17 @@ def main():
         type=str,
         help='Collection key to analyze (overrides ZOTERO_COLLECTION_KEY env var)'
     )
+    parser.add_argument(
+        '--extract-text',
+        action='store_true',
+        help='Extract text from digital PDFs and save to files'
+    )
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='pdf_extracts',
+        help='Directory to save extracted text files (default: pdf_extracts)'
+    )
 
     args = parser.parse_args()
 
@@ -342,7 +473,13 @@ def main():
         return
 
     # Initialize analyzer
-    analyzer = ZoteroPDFAnalyzer(library_id, library_type, api_key)
+    analyzer = ZoteroPDFAnalyzer(
+        library_id,
+        library_type,
+        api_key,
+        output_dir=args.output_dir,
+        extract_text=args.extract_text
+    )
 
     # Handle --list-collections flag
     if args.list_collections:
