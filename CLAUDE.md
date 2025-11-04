@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Zotero Summarizer** is a Python tool that automates the extraction of HTML content from Zotero library items (web snapshots) and converts them to Markdown notes. It accesses both user and group Zotero libraries via the Zotero API, identifies HTML attachments, converts them to readable Markdown format, and creates notes attached to the original items.
 
+## Package Manager
+
+**This project uses `uv` for Python package management.** All commands should be run with `uv run` to ensure proper dependency resolution.
+
 ## Common Commands
 
 ### Development Setup
@@ -21,23 +25,30 @@ uv pip install -r requirements.txt
 ### Running the Application
 ```bash
 # Run main entry point
-python main.py
+uv run python main.py
 
 # List available collections without processing
-python extract_html.py --list-collections
+uv run python extract_html.py --list-collections
 
 # Force re-extraction (even if markdown notes exist)
-python extract_html.py --force
+uv run python extract_html.py --force
 
 # Use LLM polish (applies Claude polish to Trafilatura output)
-python extract_html.py --use-llm
+uv run python extract_html.py --use-llm
 
 # Use LLM polish without fallback (fail if LLM polish fails)
-python extract_html.py --use-llm --no-fallback
+uv run python extract_html.py --use-llm --no-fallback
+
+# Enable verbose mode to see all child items
+uv run python extract_html.py --verbose
 
 # Run diagnostic utility for troubleshooting
-python zotero_diagnose.py --user
-python zotero_diagnose.py --group GROUP_ID
+uv run python zotero_diagnose.py --user
+uv run python zotero_diagnose.py --group GROUP_ID
+
+# Summarize sources in a collection
+uv run python summarize_sources.py --collection COLLECTION_KEY
+uv run python summarize_sources.py --verbose
 ```
 
 ### Linting & Code Quality

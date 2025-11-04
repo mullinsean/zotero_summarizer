@@ -10,7 +10,6 @@ The summaries are saved as notes attached to the original sources.
 import os
 import io
 import time
-from pyzotero import zotero
 from pypdf import PdfReader
 import fitz  # PyMuPDF
 import trafilatura
@@ -18,16 +17,17 @@ import requests
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, List
 from anthropic import Anthropic
-import markdown
 
 # Handle both relative and absolute imports
 try:
     from .llm_extractor import LLMExtractor
+    from .zotero_base import ZoteroBaseProcessor
 except ImportError:
     from llm_extractor import LLMExtractor
+    from zotero_base import ZoteroBaseProcessor
 
 
-class ZoteroSourceSummarizer:
+class ZoteroSourceSummarizer(ZoteroBaseProcessor):
     """Summarize sources in Zotero collections using LLM."""
 
     def __init__(
@@ -38,7 +38,8 @@ class ZoteroSourceSummarizer:
         anthropic_api_key: str,
         custom_prompt: str,
         force_resummary: bool = False,
-        model: str = "claude-haiku-4-5-20251001"
+        model: str = "claude-haiku-4-5-20251001",
+        verbose: bool = False
     ):
         """
         Initialize the Zotero summarizer.
@@ -51,92 +52,16 @@ class ZoteroSourceSummarizer:
             custom_prompt: Custom prompt template for summarization
             force_resummary: If True, re-summarize even if summary note already exists
             model: Claude model to use (default: claude-haiku-4-5 for cost efficiency)
+            verbose: If True, show detailed information about all child items
         """
-        self.zot = zotero.Zotero(library_id, library_type, api_key)
+        # Initialize base class
+        super().__init__(library_id, library_type, api_key, verbose)
+
+        # Summarizer-specific configuration
         self.anthropic_client = Anthropic(api_key=anthropic_api_key)
         self.custom_prompt = custom_prompt
         self.force_resummary = force_resummary
         self.model = model
-
-    def list_collections(self) -> List[Dict]:
-        """
-        List all collections in the library.
-
-        Returns:
-            List of all collections
-        """
-        try:
-            collections = self.zot.collections()
-            return collections
-        except Exception as e:
-            print(f"Error listing collections: {e}")
-            return []
-
-    def print_collections(self):
-        """Print all available collections with their keys."""
-        collections = self.list_collections()
-        if not collections:
-            print("No collections found or error accessing library")
-            return
-
-        print(f"\n{'='*60}")
-        print(f"Available Collections ({len(collections)} total)")
-        print(f"{'='*60}")
-
-        for col in collections:
-            name = col['data'].get('name', 'Unnamed')
-            key = col['key']
-            parent = col['data'].get('parentCollection', 'Top-level')
-            num_items = col['meta'].get('numItems', 0)
-            print(f"  📁 {name}")
-            print(f"     Key: {key}")
-            print(f"     Items: {num_items}")
-            if parent != 'Top-level':
-                print(f"     Parent: {parent}")
-            print()
-
-    def get_collection_items(self, collection_key: str) -> List[Dict]:
-        """
-        Get all top-level items in a specific collection (excluding child items).
-
-        Args:
-            collection_key: The key of the collection to process
-
-        Returns:
-            List of top-level items in the collection (no attachments/notes)
-        """
-        print(f"Fetching top-level items from collection {collection_key}...")
-        try:
-            # Use collection_items_top to only get parent items, not child attachments/notes
-            items = self.zot.collection_items_top(collection_key)
-            print(f"Found {len(items)} top-level items in collection")
-            return items
-        except Exception as e:
-            print(f"Error fetching collection items: {e}")
-            print("\nThis could mean:")
-            print("  1. The collection key is incorrect")
-            print("  2. You're using a user library ID for a group collection (or vice versa)")
-            print("  3. The API key doesn't have access to this collection")
-            print("\nTip: Run with --list-collections to see available collections")
-            return []
-
-    def get_item_attachments(self, item_key: str) -> List[Dict]:
-        """
-        Get all attachments for a specific item (excludes notes).
-
-        Args:
-            item_key: The key of the parent item
-
-        Returns:
-            List of attachment items (only actual file attachments, not notes)
-        """
-        children = self.zot.children(item_key)
-        # Filter to only attachment items (excludes notes and other child types)
-        attachments = [
-            child for child in children
-            if child['data'].get('itemType') == 'attachment'
-        ]
-        return attachments
 
     def has_summary_note(self, item_key: str) -> bool:
         """
@@ -148,65 +73,7 @@ class ZoteroSourceSummarizer:
         Returns:
             True if the item already has a summary note
         """
-        children = self.zot.children(item_key)
-        notes = [child for child in children if child['data'].get('itemType') == 'note']
-
-        for note in notes:
-            note_content = note['data'].get('note', '')
-            # Check if note starts with our summary title pattern
-            if note_content.startswith('# AI Summary:'):
-                return True
-
-        return False
-
-    def is_html_attachment(self, attachment: Dict) -> bool:
-        """
-        Check if an attachment is an HTML file.
-
-        Args:
-            attachment: The attachment item data
-
-        Returns:
-            True if the attachment is HTML
-        """
-        content_type = attachment['data'].get('contentType', '')
-        filename = attachment['data'].get('filename', '')
-
-        return (content_type in ['text/html', 'application/xhtml+xml'] or
-                filename.lower().endswith(('.html', '.htm')))
-
-    def is_pdf_attachment(self, attachment: Dict) -> bool:
-        """
-        Check if an attachment is a PDF file.
-
-        Args:
-            attachment: The attachment item data
-
-        Returns:
-            True if the attachment is PDF
-        """
-        content_type = attachment['data'].get('contentType', '')
-        filename = attachment['data'].get('filename', '')
-
-        return (content_type == 'application/pdf' or
-                filename.lower().endswith('.pdf'))
-
-    def download_attachment(self, attachment_key: str) -> Optional[bytes]:
-        """
-        Download an attachment file from Zotero.
-
-        Args:
-            attachment_key: The key of the attachment
-
-        Returns:
-            File content as bytes, or None if download fails
-        """
-        try:
-            file_content = self.zot.file(attachment_key)
-            return file_content
-        except Exception as e:
-            print(f"  ❌ Error downloading attachment: {e}")
-            return None
+        return self.has_note_with_prefix(item_key, '# AI Summary:')
 
     def extract_text_from_html(self, html_content: bytes, attachment_url: Optional[str] = None) -> Optional[str]:
         """
@@ -335,61 +202,6 @@ class ZoteroSourceSummarizer:
             print(f"  ❌ Error calling LLM: {e}")
             return None
 
-    def markdown_to_html(self, markdown_content: str) -> str:
-        """
-        Convert markdown content to HTML for Zotero notes.
-
-        Args:
-            markdown_content: Markdown content
-
-        Returns:
-            HTML formatted content
-        """
-        try:
-            # Convert markdown to HTML with extensions
-            html_content = markdown.markdown(
-                markdown_content,
-                extensions=['extra', 'nl2br', 'sane_lists']
-            )
-            return html_content
-        except Exception as e:
-            print(f"  ⚠️  Warning: Markdown conversion failed: {e}")
-            # Fall back to original markdown if conversion fails
-            return markdown_content.replace('\n', '<br>')
-
-    def create_summary_note(self, parent_key: str, summary: str, source_title: str) -> bool:
-        """
-        Create a summary note in Zotero attached to a parent item.
-
-        Args:
-            parent_key: The key of the parent item
-            summary: The summary content (markdown format)
-            source_title: Title of the source
-
-        Returns:
-            True if note was created successfully
-        """
-        try:
-            # Convert markdown to HTML for proper Zotero rendering
-            markdown_with_title = f"# AI Summary: {source_title}\n\n{summary}"
-            html_content = self.markdown_to_html(markdown_with_title)
-
-            note_template = self.zot.item_template('note')
-            note_template['note'] = html_content
-            note_template['parentItem'] = parent_key
-
-            result = self.zot.create_items([note_template])
-
-            if result['success']:
-                print(f"  ✅ Summary note created successfully")
-                return True
-            else:
-                print(f"  ❌ Failed to create note: {result}")
-                return False
-        except Exception as e:
-            print(f"  ❌ Error creating note: {e}")
-            return False
-
     def process_collection(self, collection_key: str):
         """
         Process all items in a collection and generate summaries.
@@ -432,6 +244,9 @@ class ZoteroSourceSummarizer:
                 print(f"  ⏭️  Already has summary note, skipping...")
                 already_summarized += 1
                 continue
+
+            # Print child items in verbose mode
+            self.print_child_items(item_key)
 
             # Get attachments for this item
             attachments = self.get_item_attachments(item_key)
@@ -499,7 +314,8 @@ class ZoteroSourceSummarizer:
 
             # Create note in Zotero
             print(f"  💾 Saving summary to Zotero...")
-            if self.create_summary_note(item_key, summary, item_title):
+            note_title = f"AI Summary: {item_title}"
+            if self.create_note(item_key, summary, note_title, convert_markdown=True):
                 processed += 1
             else:
                 errors += 1
@@ -594,6 +410,12 @@ def main():
         default='claude-haiku-4-5-20251001',
         help='Claude model to use (default: claude-haiku-4-5-20251001)'
     )
+    parser.add_argument(
+        '--verbose',
+        '-v',
+        action='store_true',
+        help='Show detailed information about all child items'
+    )
 
     args = parser.parse_args()
 
@@ -623,7 +445,8 @@ def main():
         anthropic_api_key,
         custom_prompt="",  # Will be loaded below
         force_resummary=args.force,
-        model=args.model
+        model=args.model,
+        verbose=args.verbose
     )
 
     # Handle --list-collections flag

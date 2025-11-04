@@ -8,22 +8,22 @@ extracts the text content, converts it to Markdown, and saves it as a note in th
 
 import os
 import requests
-from pyzotero import zotero
 from bs4 import BeautifulSoup
 import html2text
 from typing import Optional, Dict, List
 import time
 import trafilatura
-import markdown
 
 # Handle both relative and absolute imports
 try:
     from .llm_extractor import LLMExtractor
+    from .zotero_base import ZoteroBaseProcessor
 except ImportError:
     from llm_extractor import LLMExtractor
+    from zotero_base import ZoteroBaseProcessor
 
 
-class ZoteroHTMLExtractor:
+class ZoteroHTMLExtractor(ZoteroBaseProcessor):
     """Extract HTML content from Zotero items and convert to Markdown notes."""
     
     def __init__(
@@ -38,7 +38,7 @@ class ZoteroHTMLExtractor:
         verbose: bool = False
     ):
         """
-        Initialize the Zotero client.
+        Initialize the Zotero HTML extractor.
 
         Args:
             library_id: Your Zotero user ID or group ID
@@ -50,7 +50,10 @@ class ZoteroHTMLExtractor:
             llm_fallback: If True, fall back to BeautifulSoup if LLM extraction fails
             verbose: If True, show detailed information about all child items
         """
-        self.zot = zotero.Zotero(library_id, library_type, api_key)
+        # Initialize base class
+        super().__init__(library_id, library_type, api_key, verbose)
+
+        # HTML-specific configuration
         self.html_converter = html2text.HTML2Text()
         self.html_converter.ignore_links = False
         self.html_converter.ignore_images = True  # Ignore images including data URIs
@@ -58,7 +61,6 @@ class ZoteroHTMLExtractor:
         self.force_reextract = force_reextract
         self.use_llm = use_llm
         self.llm_fallback = llm_fallback
-        self.verbose = verbose
 
         # Initialize LLM extractor if API key provided
         self.llm_extractor = None
@@ -67,143 +69,19 @@ class ZoteroHTMLExtractor:
         elif use_llm:
             print("Warning: --use-llm flag set but no ANTHROPIC_API_KEY found. Falling back to BeautifulSoup.")
             self.use_llm = False
-        
-    def list_collections(self) -> List[Dict]:
-        """
-        List all collections in the library.
-        
-        Returns:
-            List of all collections
-        """
-        try:
-            collections = self.zot.collections()
-            return collections
-        except Exception as e:
-            print(f"Error listing collections: {e}")
-            return []
-    
-    def print_collections(self):
-        """Print all available collections with their keys."""
-        collections = self.list_collections()
-        if not collections:
-            print("No collections found or error accessing library")
-            return
-        
-        print(f"\n{'='*60}")
-        print(f"Available Collections ({len(collections)} total)")
-        print(f"{'='*60}")
-        
-        for col in collections:
-            name = col['data'].get('name', 'Unnamed')
-            key = col['key']
-            parent = col['data'].get('parentCollection', 'Top-level')
-            num_items = col['meta'].get('numItems', 0)
-            print(f"  📁 {name}")
-            print(f"     Key: {key}")
-            print(f"     Items: {num_items}")
-            if parent != 'Top-level':
-                print(f"     Parent: {parent}")
-            print()
-        print(f"{'='*60}\n")
-    
-    def get_collection_items(self, collection_key: str) -> List[Dict]:
-        """
-        Get all top-level items in a specific collection (excluding child items).
 
-        Args:
-            collection_key: The key of the collection to process
-
-        Returns:
-            List of top-level items in the collection (no attachments/notes)
-        """
-        print(f"Fetching top-level items from collection {collection_key}...")
-        try:
-            # Use collection_items_top to only get parent items, not child attachments/notes
-            items = self.zot.collection_items_top(collection_key)
-            print(f"Found {len(items)} top-level items in collection")
-            return items
-        except Exception as e:
-            print(f"Error fetching collection items: {e}")
-            print("\nThis could mean:")
-            print("  1. The collection key is incorrect")
-            print("  2. You're using a user library ID for a group collection (or vice versa)")
-            print("  3. The API key doesn't have access to this collection")
-            print("\nTip: Run with --list-collections to see available collections")
-            return []
-    
-    def get_item_attachments(self, item_key: str) -> List[Dict]:
-        """
-        Get all attachments for a specific item (excludes notes).
-
-        Args:
-            item_key: The key of the parent item
-
-        Returns:
-            List of attachment items (only actual file attachments, not notes)
-        """
-        children = self.zot.children(item_key)
-        # Filter to only attachment items (excludes notes and other child types)
-        attachments = [
-            child for child in children
-            if child['data'].get('itemType') == 'attachment'
-        ]
-        return attachments
-    
     def has_markdown_extract_note(self, item_key: str) -> bool:
         """
         Check if an item already has a markdown extract note.
-        
+
         Args:
             item_key: The key of the parent item
-            
+
         Returns:
             True if the item already has a markdown extract note
         """
-        children = self.zot.children(item_key)
-        notes = [child for child in children if child['data'].get('itemType') == 'note']
-        
-        for note in notes:
-            note_content = note['data'].get('note', '')
-            # Check if note starts with our markdown extract title pattern
-            if note_content.startswith('# Markdown Extract:'):
-                return True
-        
-        return False
-    
-    def is_html_attachment(self, attachment: Dict) -> bool:
-        """
-        Check if an attachment is an HTML file.
-        
-        Args:
-            attachment: The attachment item data
-            
-        Returns:
-            True if the attachment is HTML
-        """
-        content_type = attachment['data'].get('contentType', '')
-        filename = attachment['data'].get('filename', '')
-        
-        return (content_type in ['text/html', 'application/xhtml+xml'] or
-                filename.lower().endswith(('.html', '.htm')))
-    
-    def download_attachment(self, attachment_key: str) -> Optional[bytes]:
-        """
-        Download an attachment file from Zotero.
-        
-        Args:
-            attachment_key: The key of the attachment
-            
-        Returns:
-            File content as bytes, or None if download fails
-        """
-        try:
-            print(f"  Downloading attachment from Zotero...")
-            file_content = self.zot.file(attachment_key)
-            return file_content
-        except Exception as e:
-            print(f"  Error downloading attachment: {e}")
-            return None
-    
+        return self.has_note_with_prefix(item_key, '# Markdown Extract:')
+
     def fetch_url_content(self, url: str) -> Optional[str]:
         """
         Fetch HTML content from a URL.
@@ -341,62 +219,7 @@ class ZoteroHTMLExtractor:
                 return markdown
 
         return markdown
-    
-    def markdown_to_html(self, markdown_content: str) -> str:
-        """
-        Convert markdown content to HTML for Zotero notes.
 
-        Args:
-            markdown_content: Markdown content
-
-        Returns:
-            HTML formatted content
-        """
-        try:
-            # Convert markdown to HTML with extensions
-            html_content = markdown.markdown(
-                markdown_content,
-                extensions=['extra', 'nl2br', 'sane_lists']
-            )
-            return html_content
-        except Exception as e:
-            print(f"  ⚠ Warning: Markdown conversion failed: {e}")
-            # Fall back to original markdown if conversion fails
-            return markdown_content.replace('\n', '<br>')
-
-    def create_note(self, parent_key: str, markdown_content: str, title: str) -> bool:
-        """
-        Create a note in Zotero attached to a parent item.
-
-        Args:
-            parent_key: The key of the parent item
-            markdown_content: The Markdown content for the note
-            title: Title for the note
-
-        Returns:
-            True if note was created successfully
-        """
-        try:
-            # Convert markdown to HTML for proper Zotero rendering
-            markdown_with_title = f"# {title}\n\n{markdown_content}"
-            html_content = self.markdown_to_html(markdown_with_title)
-
-            note_template = self.zot.item_template('note')
-            note_template['note'] = html_content
-            note_template['parentItem'] = parent_key
-
-            result = self.zot.create_items([note_template])
-
-            if result['success']:
-                print(f"  ✓ Note created successfully")
-                return True
-            else:
-                print(f"  ✗ Failed to create note: {result}")
-                return False
-        except Exception as e:
-            print(f"  ✗ Error creating note: {e}")
-            return False
-    
     def process_collection(self, collection_key: str):
         """
         Process all items in a collection, extracting HTML content and creating notes.
@@ -424,36 +247,15 @@ class ZoteroHTMLExtractor:
             item_title = item['data'].get('title', 'Untitled')
 
             print(f"\nProcessing: {item_title}")
-            
+
             # Check if already has markdown extract (unless force flag is set)
             if not self.force_reextract and self.has_markdown_extract_note(item_key):
                 print(f"  ⏭️  Already has markdown extract, skipping")
                 already_extracted += 1
                 continue
-            
-            # Get all children for this item (for verbose output)
-            if self.verbose:
-                children = self.zot.children(item_key)
-                print(f"  📋 All child items ({len(children)} total):")
-                for idx, child in enumerate(children, 1):
-                    child_type = child['data'].get('itemType', 'unknown')
-                    child_title = child['data'].get('title', 'Untitled')
 
-                    if child_type == 'note':
-                        note_preview = child['data'].get('note', '')[:80].replace('\n', ' ')
-                        print(f"    {idx}. 📝 NOTE: {note_preview}...")
-                    elif child_type == 'attachment':
-                        content_type = child['data'].get('contentType', 'unknown')
-                        filename = child['data'].get('filename', 'no filename')
-                        link_mode = child['data'].get('linkMode', 'unknown')
-                        url = child['data'].get('url', 'no url')
-                        print(f"    {idx}. 📎 ATTACHMENT: {child_title}")
-                        print(f"        - Filename: {filename}")
-                        print(f"        - Content Type: {content_type}")
-                        print(f"        - Link Mode: {link_mode}")
-                        print(f"        - URL: {url}")
-                    else:
-                        print(f"    {idx}. ❓ {child_type.upper()}: {child_title}")
+            # Print child items in verbose mode
+            self.print_child_items(item_key)
 
             # Get attachments for this item
             attachments = self.get_item_attachments(item_key)
@@ -509,7 +311,7 @@ class ZoteroHTMLExtractor:
 
                     # Create note
                     note_title = f"Markdown Extract: {attachment_title}"
-                    success = self.create_note(item_key, markdown, note_title)
+                    success = self.create_note(item_key, markdown, note_title, convert_markdown=True)
                     
                     if success:
                         processed += 1
