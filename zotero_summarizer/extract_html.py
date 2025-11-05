@@ -82,19 +82,61 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
         """
         return self.has_note_with_prefix(item_key, 'Markdown Extract:')
 
+    def is_webpage_item(self, item: Dict) -> bool:
+        """
+        Check if a parent item is a webpage type.
+
+        Args:
+            item: The Zotero item
+
+        Returns:
+            True if the item is a webpage with a URL
+        """
+        item_type = item['data'].get('itemType')
+        url = item['data'].get('url', '')
+
+        # Check if it's a webpage type and has a valid HTTP(S) URL
+        return item_type == 'webpage' and url.startswith('http')
+
+    def has_pdf_attachment(self, attachments: List[Dict]) -> bool:
+        """
+        Check if any of the attachments is a PDF.
+
+        Args:
+            attachments: List of attachment items
+
+        Returns:
+            True if at least one PDF attachment exists
+        """
+        for attachment in attachments:
+            if attachment['data'].get('itemType') != 'attachment':
+                continue
+
+            content_type = attachment['data'].get('contentType', '').lower()
+            filename = attachment['data'].get('filename', '').lower()
+
+            if 'pdf' in content_type or filename.endswith('.pdf'):
+                return True
+
+        return False
+
     def fetch_url_content(self, url: str) -> Optional[str]:
         """
         Fetch HTML content from a URL.
-        
+
         Args:
             url: The URL to fetch
-            
+
         Returns:
             HTML content as string, or None if fetch fails
         """
         try:
             print(f"  Fetching content from URL: {url}")
-            response = requests.get(url, timeout=30)
+            # Use Chrome User-Agent to avoid anti-bot 403 errors
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=30)
             response.raise_for_status()
             return response.text
         except Exception as e:
@@ -260,11 +302,46 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
             # Get attachments for this item
             attachments = self.get_item_attachments(item_key)
 
+            # If no attachments found, check if it's a webpage we can fetch directly
             if not attachments:
-                print("  ⚠️  No attachments found")
+                if self.is_webpage_item(item):
+                    url = item['data'].get('url')
+                    print(f"  No child items found, but item is a webpage")
+                    print(f"  Fetching content from parent item URL: {url}")
+
+                    # Fetch and process webpage content
+                    html_content = self.fetch_url_content(url)
+
+                    if html_content:
+                        markdown = self.extract_content(html_content, item_title)
+
+                        if not markdown:
+                            print("  ✗ Content extraction failed")
+                            errors += 1
+                        else:
+                            note_title = f"Markdown Extract: {item_title}"
+                            success = self.create_note(item_key, markdown, note_title, convert_markdown=True)
+
+                            if success:
+                                processed += 1
+                            else:
+                                errors += 1
+
+                            time.sleep(1)
+                    else:
+                        print("  ✗ Could not fetch content from URL")
+                        errors += 1
+                else:
+                    print("  ⚠️  No attachments found")
+                    skipped += 1
+                continue
+
+            # Check if item has PDF attachment - if so, skip
+            if self.has_pdf_attachment(attachments):
+                print("  ⏭️  PDF attachment found, skipping webpage extraction")
                 skipped += 1
                 continue
-            
+
             # Process HTML attachments
             html_found = False
             for attachment in attachments:
@@ -326,8 +403,40 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
                     errors += 1
             
             if not html_found:
-                print("  No HTML attachments found")
-                skipped += 1
+                # Check if the parent item itself is a webpage
+                if self.is_webpage_item(item):
+                    url = item['data'].get('url')
+                    print(f"  No HTML snapshot found, but item is a webpage")
+                    print(f"  Fetching content from parent item URL: {url}")
+
+                    # Fetch HTML content from the URL
+                    html_content = self.fetch_url_content(url)
+
+                    if html_content:
+                        # Extract content using configured method
+                        markdown = self.extract_content(html_content, item_title)
+
+                        if not markdown:
+                            print("  ✗ Content extraction failed")
+                            errors += 1
+                        else:
+                            # Create note
+                            note_title = f"Markdown Extract: {item_title}"
+                            success = self.create_note(item_key, markdown, note_title, convert_markdown=True)
+
+                            if success:
+                                processed += 1
+                            else:
+                                errors += 1
+
+                            # Rate limiting - be nice to Zotero API
+                            time.sleep(1)
+                    else:
+                        print("  ✗ Could not fetch content from URL")
+                        errors += 1
+                else:
+                    print("  No HTML attachments found")
+                    skipped += 1
         
         print("\n" + "="*60)
         print("Processing complete!")
@@ -344,9 +453,9 @@ def main():
 
     # Configuration - Replace with your actual values
     LIBRARY_ID = os.environ.get('ZOTERO_LIBRARY_ID', 'YOUR_LIBRARY_ID')
-    LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'group')  # 'user' or 'group'
+    LIBRARY_TYPE = os.environ.get('ZOTERO_LIBRARY_TYPE', 'user')  # 'user' or 'group'
     API_KEY = os.environ.get('ZOTERO_API_KEY', 'YOUR_API_KEY')
-    COLLECTION_KEY = os.environ.get('ZOTERO_COLLECTION_KEY', '3YNCRQHJ')
+    COLLECTION_KEY = os.environ.get('ZOTERO_COLLECTION_KEY', 'THZ4BI6T')
 
     # LLM Configuration
     ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', None)

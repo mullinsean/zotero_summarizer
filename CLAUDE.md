@@ -72,6 +72,8 @@ The `ZoteroHTMLExtractor` class is the central component orchestrating all funct
 
 **HTML Processing Methods:**
 - `is_html_attachment()` - Identifies HTML files
+- `is_webpage_item()` - Checks if parent item is a webpage type with a URL
+- `has_pdf_attachment()` - Checks if any attachment is a PDF file
 - `has_markdown_extract_note()` - Checks if item already has extracted markdown
 - `download_attachment()` - Retrieves attachment from Zotero storage
 - `fetch_url_content()` - Fetches HTML from a URL (fallback)
@@ -112,20 +114,34 @@ Diagnostic tool for troubleshooting Zotero connections and library access. Provi
 3. For each item in the target collection:
    - Skip if already a note/attachment
    - Check if markdown extract note already exists (skip unless `--force`)
-   - Retrieve HTML attachments
-   - For each HTML file:
-     - Try downloading from Zotero snapshot first
-     - Fall back to fetching from URL
-     - **Extract content using Trafilatura (default):**
-       - Trafilatura extracts main article content
-       - **If `--use-llm` flag:** Apply Claude polish to improve formatting
-       - **If Trafilatura fails and fallback enabled:** Fall back to BeautifulSoup
+   - Retrieve child attachments
+   - **If no child items found:**
+     - Check if parent item is a webpage type with a URL
+     - If yes, fetch HTML content directly from the parent item's URL
+     - Process the fetched content using the extraction pipeline
      - Create note via Zotero API
      - Rate limit (1-second delay between API calls)
+   - **If child items exist:**
+     - **Check for PDF attachments first - if found, skip item entirely**
+     - For each HTML attachment:
+       - Try downloading from Zotero snapshot first
+       - Fall back to fetching from URL
+       - **Extract content using Trafilatura (default):**
+         - Trafilatura extracts main article content
+         - **If `--use-llm` flag:** Apply Claude polish to improve formatting
+         - **If Trafilatura fails and fallback enabled:** Fall back to BeautifulSoup
+       - Create note via Zotero API
+       - Rate limit (1-second delay between API calls)
+     - **If no HTML attachments found but child items exist:**
+       - Check if parent item is a webpage type with a URL
+       - If yes, fetch HTML content directly from the parent item's URL
+       - Process the fetched content using the same extraction pipeline
+       - Create note via Zotero API
 
 ### Content Retrieval Priority
 1. Zotero snapshot (local file in library)
 2. Direct URL fetch (HTTP request to attachment URL)
+3. Parent item URL fetch (for webpage items without snapshots)
 
 ### Extraction Methods
 
@@ -189,6 +205,16 @@ The `--force` flag controls whether to re-extract markdown notes. The code check
 
 ### Library Type Support
 Supports both user libraries and group libraries. The `ZOTERO_LIBRARY_TYPE` environment variable determines which type is used (commit b1cdc8d added group support).
+
+### PDF Attachment Handling
+Items with PDF attachments are automatically skipped for HTML extraction. This prevents unnecessary webpage fetching when a PDF version already exists. The logic checks all child attachments for PDF files (by content type or file extension) before attempting any HTML extraction.
+
+### Webpage Without Snapshot Handling
+The tool can extract content from webpage items even without HTML snapshots:
+- If an item has **no child items** and is a `webpage` type with a URL, content is fetched directly from the URL
+- If an item has **child items but no HTML attachments** (e.g., only text files) and is a `webpage` type, content is fetched from the parent item's URL
+- This enables extraction from webpages added to Zotero without saving snapshots
+- PDF attachments take priority - if a PDF exists, webpage extraction is skipped
 
 ### HTML Processing Pipelines
 
