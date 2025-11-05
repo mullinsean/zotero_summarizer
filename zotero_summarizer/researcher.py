@@ -15,6 +15,7 @@ from datetime import datetime
 import fitz  # PyMuPDF
 import trafilatura
 import requests
+import markdown
 from anthropic import Anthropic
 
 # Handle both relative and absolute imports
@@ -601,11 +602,71 @@ Format your response using clear markdown headings and structure."""
         .source .content-section {
             margin-top: 25px;
         }
+        .source .content-section h1,
+        .source .content-section h2,
+        .source .content-section h3,
         .source .content-section h4 {
             color: #34495e;
             border-left: 4px solid #3498db;
             padding-left: 15px;
             margin-top: 30px;
+            margin-bottom: 15px;
+        }
+        .source .content-section h1 { font-size: 1.5em; }
+        .source .content-section h2 { font-size: 1.3em; }
+        .source .content-section h3 { font-size: 1.15em; }
+        .source .content-section h4 { font-size: 1em; }
+        .source .content-section p {
+            margin: 15px 0;
+            line-height: 1.8;
+        }
+        .source .content-section ul,
+        .source .content-section ol {
+            margin: 15px 0;
+            padding-left: 30px;
+            line-height: 1.8;
+        }
+        .source .content-section li {
+            margin: 8px 0;
+        }
+        .source .content-section blockquote {
+            background: #f0f8ff;
+            border-left: 4px solid #3498db;
+            padding: 15px 20px;
+            margin: 20px 0;
+            font-style: italic;
+        }
+        .source .content-section code {
+            background: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        .source .content-section pre {
+            background: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 20px 0;
+        }
+        .source .content-section pre code {
+            background: none;
+            padding: 0;
+        }
+        .source .content-section strong {
+            color: #2c3e50;
+            font-weight: 600;
+        }
+        .source .content-section em {
+            font-style: italic;
+        }
+        .source .content-section a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .source .content-section a:hover {
+            text-decoration: underline;
         }
         .back-to-top {
             display: inline-block;
@@ -703,6 +764,10 @@ Format your response using clear markdown headings and structure."""
             library_type = 'groups' if self.zot.library_type == 'group' else 'library'
             zotero_link = f"zotero://select/{library_type}/{self.zot.library_id}/items/{item_key}"
 
+            # Convert markdown to HTML
+            summary_markdown = summary_data.get('full_text', 'Summary not available')
+            summary_html = markdown.markdown(summary_markdown, extensions=['extra', 'nl2br'])
+
             html_parts.append(f"""
     <div class="source" id="{anchor}">
         <h3>{idx}. {item_title}</h3>
@@ -712,7 +777,7 @@ Format your response using clear markdown headings and structure."""
             <strong>Zotero Link:</strong> <a href="{zotero_link}" target="_blank">Open in Zotero</a>
         </div>
         <div class="content-section">
-{summary_data.get('full_text', 'Summary not available')}
+{summary_html}
         </div>
         <a href="#" class="back-to-top">↑ Back to top</a>
     </div>
