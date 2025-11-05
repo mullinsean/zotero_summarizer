@@ -38,6 +38,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         relevance_threshold: int = 6,
         max_sources: int = 50,
         cache_summaries: bool = True,
+        use_sonnet: bool = False,
         verbose: bool = False
     ):
         """
@@ -52,6 +53,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             relevance_threshold: Minimum relevance score (0-10) to include source (default: 6)
             max_sources: Maximum number of sources to process (default: 50)
             cache_summaries: If True, cache general summaries for efficiency (default: True)
+            use_sonnet: If True, use Sonnet for detailed summaries (higher quality, higher cost) (default: False)
             verbose: If True, show detailed information about all child items
         """
         # Initialize base class
@@ -63,11 +65,16 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         self.relevance_threshold = relevance_threshold
         self.max_sources = max_sources
         self.cache_summaries = cache_summaries
+        self.use_sonnet = use_sonnet
 
         # Use Haiku for quick tasks (relevance, general summaries)
         self.haiku_model = "claude-haiku-4-5-20251001"
-        # Use Sonnet for detailed analysis (targeted summaries)
+        # Sonnet for production-quality detailed analysis
         self.sonnet_model = "claude-sonnet-4-5-20250929"
+
+        # Default to Haiku for detailed summaries (cost-efficient)
+        # Use Sonnet only when use_sonnet=True (production mode)
+        self.summary_model = self.sonnet_model if use_sonnet else self.haiku_model
 
     def load_research_brief(self, brief_file: str) -> str:
         """
@@ -411,7 +418,7 @@ Provide ONLY a single number (0-10) as your response, nothing else."""
         try:
             item_title = item['data'].get('title', 'Untitled')
 
-            # Use Sonnet for better analysis and quote extraction
+            # Use configured model (Haiku by default, Sonnet for production)
             prompt = f"""Research Brief:
 {self.research_brief}
 
@@ -435,7 +442,7 @@ Please provide:
 Format your response using clear markdown headings and structure."""
 
             response = self.anthropic_client.messages.create(
-                model=self.sonnet_model,
+                model=self.summary_model,
                 max_tokens=4096,
                 messages=[
                     {"role": "user", "content": prompt}
@@ -834,6 +841,7 @@ Format your response using clear markdown headings and structure."""
         print(f"Relevance Threshold: {self.relevance_threshold}/10")
         print(f"Max Sources: {self.max_sources}")
         print(f"Summary Caching: {'Enabled' if self.cache_summaries else 'Disabled'}")
+        print(f"Summary Model: {self.summary_model} ({'Sonnet - High Quality' if self.use_sonnet else 'Haiku - Cost Efficient'})")
         print(f"{'='*80}\n")
 
         # Get collection items
@@ -942,7 +950,8 @@ Format your response using clear markdown headings and structure."""
             content_type = source_data['content_type']
 
             print(f"\n[{idx}/{len(relevant_sources)}] 📝 {item_title} (Score: {score}/10)")
-            print(f"  🤖 Generating targeted summary (Sonnet)...")
+            model_name = "Sonnet" if self.use_sonnet else "Haiku"
+            print(f"  🤖 Generating targeted summary ({model_name})...")
 
             summary_data = self.generate_targeted_summary(item, content, content_type)
             if summary_data:
@@ -1037,6 +1046,11 @@ def main():
         help='Disable summary caching'
     )
     parser.add_argument(
+        '--use-sonnet',
+        action='store_true',
+        help='Use Sonnet for detailed summaries (higher quality, higher cost). Default: Haiku (cost-efficient)'
+    )
+    parser.add_argument(
         '--verbose',
         '-v',
         action='store_true',
@@ -1073,6 +1087,7 @@ def main():
         relevance_threshold=args.threshold,
         max_sources=args.max_sources,
         cache_summaries=not args.no_cache_summaries,
+        use_sonnet=args.use_sonnet,
         verbose=args.verbose
     )
 

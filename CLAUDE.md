@@ -58,6 +58,7 @@ uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.t
 uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
 uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
 uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --no-cache-summaries
+uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet  # High quality mode
 ```
 
 ### Linting & Code Quality
@@ -144,7 +145,8 @@ The `ZoteroResearcher` class performs sophisticated research analysis on Zotero 
 
 **LLM Model Strategy:**
 - **Claude Haiku 4.5** for relevance evaluation and general summaries (fast, cost-efficient)
-- **Claude Sonnet 4.5** for detailed targeted summaries (better analysis and quote extraction)
+- **Claude Haiku 4.5** for detailed targeted summaries by default (cost-efficient development)
+- **Claude Sonnet 4.5** for detailed targeted summaries with `--use-sonnet` flag (production quality)
 
 **Workflow:**
 1. Load research brief from text file
