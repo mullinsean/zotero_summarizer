@@ -6,6 +6,7 @@ Summarizer:
 [] add tagging feature --> add tags back into Zotero?
 [] access website directly if HTML snapshot doesn't exist  (add back into Zotero?)
 [] iterate over subcollections as well?
+[] add ability to handle OCR pdfs
 
 Question Answerer:
 [] pose a query that can be answered a) by just going through paper summaries b) by going through all source documents in a collection c) "smart method" where LLM decides whether to review entire source document based how relevant the summary is to the question
