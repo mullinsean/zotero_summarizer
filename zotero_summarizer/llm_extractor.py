@@ -179,6 +179,6 @@ Return the polished markdown content."""
         Change the Claude model being used.
 
         Args:
-            model: Model name (e.g., 'claude-haiku-4-5-20251001', 'claude-3-5-sonnet-20241022')
+            model: Model name (e.g., 'claude-haiku-4-5-20251001', 'claude-sonnet-4-5-20250929')
         """
         self.model = model

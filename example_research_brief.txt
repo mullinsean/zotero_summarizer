@@ -1,0 +1,19 @@
+Research Topic: Impact of Artificial Intelligence on Software Development Practices
+
+I am researching how artificial intelligence and machine learning technologies are transforming software development practices. Specifically, I am interested in:
+
+1. AI-assisted code generation and completion tools (e.g., GitHub Copilot, ChatGPT for coding)
+2. Automated testing and bug detection using AI
+3. Impact on developer productivity and code quality
+4. Ethical considerations and potential risks
+5. How AI is changing the role of software developers
+
+I am looking for:
+- Empirical studies measuring productivity impacts
+- Case studies from companies implementing AI tools
+- Analysis of code quality metrics before/after AI adoption
+- Developer perspectives and surveys
+- Discussion of limitations and challenges
+- Future predictions and trends
+
+Please focus on peer-reviewed research, industry reports, and authoritative technical analyses published in the last 3-5 years.

@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Zotero Summarizer** is a Python tool that automates the extraction of HTML content from Zotero library items (web snapshots) and converts them to Markdown notes. It accesses both user and group Zotero libraries via the Zotero API, identifies HTML attachments, converts them to readable Markdown format, and creates notes attached to the original items.
 
+The tool now includes a **Research Assistant** feature that analyzes sources based on a research brief, ranks them by relevance, and generates targeted summaries with key quotes and statistics.
+
 ## Package Manager
 
 **This project uses `uv` for Python package management.** All commands should be run with `uv run` to ensure proper dependency resolution.
@@ -49,6 +51,13 @@ uv run python zotero_diagnose.py --group GROUP_ID
 # Summarize sources in a collection
 uv run python summarize_sources.py --collection COLLECTION_KEY
 uv run python summarize_sources.py --verbose
+
+# Research Assistant - analyze sources based on research brief
+uv run python researcher.py --list-collections
+uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt
+uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
+uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
+uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --no-cache-summaries
 ```
 
 ### Linting & Code Quality
@@ -106,6 +115,70 @@ The `LLMExtractor` class provides AI-powered content polishing:
 ### Utility Module: `zotero_summarizer/zotero_diagnose.py`
 
 Diagnostic tool for troubleshooting Zotero connections and library access. Provides CLI for testing API connectivity and group membership.
+
+### Research Module: `zotero_summarizer/researcher.py`
+
+The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections:
+
+**Key Features:**
+- Analyzes sources based on a user-defined research brief
+- Evaluates relevance using AI (0-10 scoring)
+- Ranks sources by relevance to research question
+- Generates targeted summaries with key quotes and statistics
+- Caches general summaries for efficiency
+- Outputs professional HTML report with linked table of contents
+
+**Core Methods:**
+- `__init__()` - Initializes with Zotero credentials, Anthropic API key, and research parameters
+- `load_research_brief()` - Loads research brief from plain text file
+- `get_source_content()` - Retrieves content with priority: Markdown Extract → HTML → PDF → URL
+- `extract_text_from_html()` - Trafilatura-based HTML extraction (reused from summarize_sources.py)
+- `extract_text_from_pdf()` - PyMuPDF-based PDF extraction (reused from summarize_sources.py)
+- `has_general_summary()` - Checks for cached summary notes
+- `create_general_summary()` - Creates cached general summary using Haiku (cost-efficient)
+- `evaluate_source_relevance()` - LLM-based relevance scoring (Haiku for speed/cost)
+- `rank_sources()` - Sorts sources by relevance score (descending)
+- `generate_targeted_summary()` - Creates detailed research summary with quotes (Sonnet for quality)
+- `compile_research_html()` - Builds HTML report with linked TOC and relevance scores
+- `run_research()` - Main orchestration: extract → evaluate → rank → summarize → compile
+
+**LLM Model Strategy:**
+- **Claude Haiku 4.5** for relevance evaluation and general summaries (fast, cost-efficient)
+- **Claude Sonnet 4.5** for detailed targeted summaries (better analysis and quote extraction)
+
+**Workflow:**
+1. Load research brief from text file
+2. Extract content from all sources (up to max_sources limit)
+3. Create or reuse cached general summaries
+4. Evaluate relevance of each source (0-10 scale)
+5. Filter sources meeting threshold (default: 6/10)
+6. Rank sources by relevance score
+7. Generate detailed summaries for relevant sources
+8. Compile HTML report with statistics
+
+**Summary Caching:**
+- Creates "General Summary" notes in Zotero for reuse across research briefs
+- Reduces redundant LLM calls and costs
+- Can be disabled with `--no-cache-summaries` flag
+
+**Inherits from:** `ZoteroBaseProcessor` (shares collection/attachment/note handling with other modules)
+
+### Base Module: `zotero_summarizer/zotero_base.py`
+
+The `ZoteroBaseProcessor` class provides shared functionality for all processors:
+
+**Shared Methods:**
+- `list_collections()` / `print_collections()` - Collection management
+- `get_collection_items()` - Retrieves top-level items from collection
+- `get_item_attachments()` - Fetches child attachments
+- `is_html_attachment()` / `is_pdf_attachment()` - Content type detection
+- `download_attachment()` - Downloads attachment content from Zotero
+- `create_note()` - Creates notes in Zotero with markdown conversion
+- `has_note_with_prefix()` / `get_note_with_prefix()` - Note checking and retrieval
+
+**Used by:**
+- `ZoteroSourceSummarizer` (summarize_sources.py)
+- `ZoteroResearcher` (researcher.py)
 
 ### Data Flow
 
