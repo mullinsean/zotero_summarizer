@@ -52,13 +52,19 @@ uv run python zotero_diagnose.py --group GROUP_ID
 uv run python summarize_sources.py --collection COLLECTION_KEY
 uv run python summarize_sources.py --verbose
 
-# Research Assistant - analyze sources based on research brief
+# Research Assistant - Two-phase workflow with project-aware summaries
+# Phase 1: Build general summaries (run once)
 uv run python researcher.py --list-collections
-uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt
-uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
-uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
-uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --no-cache-summaries
-uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet  # High quality mode
+uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
+    --project-overview project_overview.txt --tags tags.txt
+uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
+    --project-overview project_overview.txt --tags tags.txt --force  # Rebuild existing
+
+# Phase 2: Query with research briefs (run multiple times)
+uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt
+uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
+uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
+uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet  # High quality mode
 ```
 
 ### Linting & Code Quality
@@ -119,49 +125,118 @@ Diagnostic tool for troubleshooting Zotero connections and library access. Provi
 
 ### Research Module: `zotero_summarizer/researcher.py`
 
-The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections:
+The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections using a **two-phase workflow**:
+
+**Architecture: Two-Phase Workflow**
+
+**Phase 1 - Build Summaries (`--build-summaries`):**
+- Pre-process all sources with project-aware summaries
+- Extract metadata (authors, date, publication, type, URL)
+- Generate context-aware summaries informed by project overview
+- Assign relevant tags from user-provided list
+- Create structured "General Summary" notes in Zotero
+- Run once per collection, reuse across multiple queries
+
+**Phase 2 - Query (`--query`):**
+- Answer specific research questions using pre-built summaries
+- Parse structured summaries with metadata and tags
+- Evaluate relevance using metadata, tags, and summary content
+- Rank sources by relevance score
+- Generate detailed targeted summaries for relevant sources
+- Output professional HTML report
 
 **Key Features:**
-- Analyzes sources based on a user-defined research brief
-- Evaluates relevance using AI (0-10 scoring)
-- Ranks sources by relevance to research question
-- Generates targeted summaries with key quotes and statistics
-- Caches general summaries for efficiency
-- Outputs professional HTML report with linked table of contents
+- Two-phase workflow: build once, query multiple times
+- Context-aware summaries informed by project overview
+- Tag-based categorization from user-defined list
+- Rich metadata extraction from Zotero API
+- Relevance evaluation using metadata + tags + summary
+- Professional HTML reports with metadata and tag badges
+- Cost-efficient: expensive summarization separate from cheap relevance checks
 
 **Core Methods:**
-- `__init__()` - Initializes with Zotero credentials, Anthropic API key, and research parameters
-- `load_research_brief()` - Loads research brief from plain text file
+
+*Loaders & Extraction:*
+- `load_research_brief()` - Loads research brief/question from file
+- `load_project_overview()` - Loads project overview from file
+- `load_tags()` - Loads tag list from file (one per line)
+- `extract_metadata()` - Extracts metadata from Zotero API
 - `get_source_content()` - Retrieves content with priority: Markdown Extract → HTML → PDF → URL
-- `extract_text_from_html()` - Trafilatura-based HTML extraction (reused from summarize_sources.py)
-- `extract_text_from_pdf()` - PyMuPDF-based PDF extraction (reused from summarize_sources.py)
-- `has_general_summary()` - Checks for cached summary notes
-- `create_general_summary()` - Creates cached general summary using Haiku (cost-efficient)
-- `evaluate_source_relevance()` - LLM-based relevance scoring (Haiku for speed/cost)
+- `extract_text_from_html()` - Trafilatura-based HTML extraction
+- `extract_text_from_pdf()` - PyMuPDF-based PDF extraction
+
+*Phase 1 - Build:*
+- `build_general_summaries()` - Main orchestration for Phase 1
+- `create_general_summary_with_tags()` - Generates summary with tags and document type
+- `format_general_summary_note()` - Creates structured note format
+- `has_general_summary()` - Checks for existing summary
+
+*Phase 2 - Query:*
+- `run_query()` - Main orchestration for Phase 2
+- `parse_general_summary_note()` - Parses structured note into metadata/tags/summary
+- `evaluate_source_relevance()` - LLM-based relevance scoring with metadata + tags
 - `rank_sources()` - Sorts sources by relevance score (descending)
-- `generate_targeted_summary()` - Creates detailed research summary with quotes (Sonnet for quality)
-- `compile_research_html()` - Builds HTML report with linked TOC and relevance scores
-- `run_research()` - Main orchestration: extract → evaluate → rank → summarize → compile
+- `generate_targeted_summary()` - Creates detailed research summary with quotes
+- `compile_research_html()` - Builds HTML report with metadata and tag badges
 
 **LLM Model Strategy:**
-- **Claude Haiku 4.5** for relevance evaluation and general summaries (fast, cost-efficient)
-- **Claude Haiku 4.5** for detailed targeted summaries by default (cost-efficient development)
+- **Claude Haiku 4.5** for Phase 1 general summaries (cost-efficient)
+- **Claude Haiku 4.5** for relevance evaluation (fast, cheap)
+- **Claude Haiku 4.5** for detailed targeted summaries by default (cost-efficient)
 - **Claude Sonnet 4.5** for detailed targeted summaries with `--use-sonnet` flag (production quality)
 
-**Workflow:**
-1. Load research brief from text file
-2. Extract content from all sources (up to max_sources limit)
-3. Create or reuse cached general summaries
-4. Evaluate relevance of each source (0-10 scale)
-5. Filter sources meeting threshold (default: 6/10)
-6. Rank sources by relevance score
-7. Generate detailed summaries for relevant sources
-8. Compile HTML report with statistics
+**Structured Note Format:**
+```
+General Summary
 
-**Summary Caching:**
-- Creates "General Summary" notes in Zotero for reuse across research briefs
-- Reduces redundant LLM calls and costs
-- Can be disabled with `--no-cache-summaries` flag
+## Metadata
+- **Title**: <title>
+- **Authors**: <authors>
+- **Date**: <date>
+- **Publication**: <publication>
+- **Type**: <document type determined by LLM>
+- **URL**: <url>
+
+## Tags
+<comma-separated tags>
+
+## Summary
+<summary text>
+
+---
+Created: <timestamp>
+Project: <project name>
+```
+
+**Phase 1 Workflow (Build Summaries):**
+1. Load project overview and tags from files
+2. For each source in collection:
+   - Extract metadata from Zotero API
+   - Get source content (HTML/PDF/URL)
+   - Generate context-aware summary with LLM
+   - Assign relevant tags from provided list
+   - Identify document type (LLM)
+   - Create structured "General Summary" note in Zotero
+3. Skip existing summaries unless `--force` flag used
+
+**Phase 2 Workflow (Query):**
+1. Load research brief from file
+2. For each source in collection:
+   - Load and parse "General Summary" note
+   - Extract metadata, tags, and summary
+   - Evaluate relevance using metadata + tags + summary
+   - If score ≥ threshold: add to relevant sources list
+3. Rank relevant sources by score
+4. Generate detailed targeted summaries with quotes
+5. Compile HTML report with metadata and tag badges
+
+**Benefits of Two-Phase Approach:**
+- **Efficiency**: Build summaries once, query many times
+- **Context-Aware**: Summaries informed by project overview
+- **Better Relevance**: Tags help LLM evaluate topical alignment
+- **Metadata Rich**: Display source provenance and authority
+- **Flexibility**: Run multiple queries against same summary set
+- **Cost Optimization**: ~90% cost reduction by separating phases
 
 **Inherits from:** `ZoteroBaseProcessor` (shares collection/attachment/note handling with other modules)
 

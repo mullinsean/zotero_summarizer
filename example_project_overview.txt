@@ -1,0 +1,16 @@
+Research Project: Impact of Artificial Intelligence on Software Development Practices
+
+This research project examines how artificial intelligence and machine learning technologies are fundamentally transforming software development practices in the modern tech industry. The study aims to produce a comprehensive technical report for software engineering managers and technical leaders who are evaluating the adoption of AI-assisted development tools.
+
+Key Research Areas:
+1. AI-assisted code generation and completion tools (GitHub Copilot, ChatGPT, Claude Code, etc.)
+2. Automated testing, bug detection, and code review using machine learning
+3. Quantitative impacts on developer productivity and velocity
+4. Code quality metrics and technical debt implications
+5. Ethical considerations, bias, and security concerns
+6. Changes to developer roles, skills, and workflows
+7. Organizational adoption patterns and best practices
+
+The research will synthesize findings from peer-reviewed academic studies, industry reports, case studies from major tech companies, and surveys of developer experiences. The goal is to provide evidence-based recommendations for organizations considering AI tool adoption, including implementation strategies, potential ROI, and risk mitigation approaches.
+
+Target deliverable: A 20-30 page technical report with executive summary, methodology, findings, case studies, and actionable recommendations.

@@ -34,11 +34,13 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         library_type: str,
         api_key: str,
         anthropic_api_key: str,
-        research_brief: str,
+        research_brief: str = "",
+        project_overview: str = "",
+        tags: List[str] = None,
         relevance_threshold: int = 6,
         max_sources: int = 50,
-        cache_summaries: bool = True,
         use_sonnet: bool = False,
+        force_rebuild: bool = False,
         verbose: bool = False
     ):
         """
@@ -49,11 +51,13 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
             anthropic_api_key: Anthropic API key for Claude
-            research_brief: The research brief text
+            research_brief: The research brief/question text (for query phase)
+            project_overview: The project overview text (for build phase)
+            tags: List of tags for categorization (for build phase)
             relevance_threshold: Minimum relevance score (0-10) to include source (default: 6)
             max_sources: Maximum number of sources to process (default: 50)
-            cache_summaries: If True, cache general summaries for efficiency (default: True)
             use_sonnet: If True, use Sonnet for detailed summaries (higher quality, higher cost) (default: False)
+            force_rebuild: If True, force rebuild of existing general summaries (default: False)
             verbose: If True, show detailed information about all child items
         """
         # Initialize base class
@@ -62,10 +66,12 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         # Researcher-specific configuration
         self.anthropic_client = Anthropic(api_key=anthropic_api_key)
         self.research_brief = research_brief
+        self.project_overview = project_overview
+        self.tags = tags or []
         self.relevance_threshold = relevance_threshold
         self.max_sources = max_sources
-        self.cache_summaries = cache_summaries
         self.use_sonnet = use_sonnet
+        self.force_rebuild = force_rebuild
 
         # Use Haiku for quick tasks (relevance, general summaries)
         self.haiku_model = "claude-haiku-4-5-20251001"
@@ -99,6 +105,93 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             raise ValueError(f"Research brief file is empty: {brief_file}")
 
         return brief_text
+
+    def load_project_overview(self, overview_file: str) -> str:
+        """
+        Load project overview from a text file.
+
+        Args:
+            overview_file: Path to the project overview file
+
+        Returns:
+            Project overview text
+
+        Raises:
+            FileNotFoundError: If overview file doesn't exist
+        """
+        if not os.path.exists(overview_file):
+            raise FileNotFoundError(f"Project overview file not found: {overview_file}")
+
+        with open(overview_file, 'r', encoding='utf-8') as f:
+            overview_text = f.read().strip()
+
+        if not overview_text:
+            raise ValueError(f"Project overview file is empty: {overview_file}")
+
+        return overview_text
+
+    def load_tags(self, tags_file: str) -> List[str]:
+        """
+        Load tags from a text file (one tag per line).
+
+        Args:
+            tags_file: Path to the tags file
+
+        Returns:
+            List of tags
+
+        Raises:
+            FileNotFoundError: If tags file doesn't exist
+        """
+        if not os.path.exists(tags_file):
+            raise FileNotFoundError(f"Tags file not found: {tags_file}")
+
+        with open(tags_file, 'r', encoding='utf-8') as f:
+            tags = [line.strip() for line in f if line.strip()]
+
+        if not tags:
+            raise ValueError(f"Tags file is empty or has no valid tags: {tags_file}")
+
+        return tags
+
+    def extract_metadata(self, item: Dict) -> Dict:
+        """
+        Extract metadata from a Zotero item.
+
+        Args:
+            item: The Zotero item
+
+        Returns:
+            Dict with metadata fields (title, authors, date, publication, url, itemType)
+        """
+        item_data = item['data']
+
+        # Extract basic fields
+        metadata = {
+            'title': item_data.get('title', 'Untitled'),
+            'date': item_data.get('date', 'Unknown date'),
+            'publication': item_data.get('publicationTitle', item_data.get('bookTitle', '')),
+            'url': item_data.get('url', ''),
+            'itemType': item_data.get('itemType', 'unknown')
+        }
+
+        # Extract authors/creators
+        creators = item_data.get('creators', [])
+        if creators:
+            authors = []
+            for creator in creators:
+                if 'lastName' in creator:
+                    if 'firstName' in creator:
+                        authors.append(f"{creator['firstName']} {creator['lastName']}")
+                    else:
+                        authors.append(creator['lastName'])
+                elif 'name' in creator:
+                    authors.append(creator['name'])
+            metadata['authors'] = ', '.join(authors) if authors else 'Unknown author'
+        else:
+            metadata['authors'] = 'Unknown author'
+
+        return metadata
 
     def extract_text_from_html(self, html_content: bytes, attachment_url: Optional[str] = None) -> Optional[str]:
         """
@@ -287,29 +380,169 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         """
         return self.has_note_with_prefix(item_key, 'General Summary:')
 
-    def create_general_summary(self, item_key: str, content: str, item_title: str) -> Optional[str]:
+    def format_general_summary_note(
+        self,
+        metadata: Dict,
+        tags: List[str],
+        summary: str,
+        document_type: str
+    ) -> str:
         """
-        Create a cached general summary for quick relevance evaluation.
+        Format a structured general summary note.
+
+        Args:
+            metadata: Metadata dict (title, authors, date, publication, url)
+            tags: List of assigned tags
+            summary: Summary text
+            document_type: Document type (determined by LLM)
+
+        Returns:
+            Formatted note content as plain text
+        """
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        project_name = self.project_overview.split('\n')[0] if self.project_overview else "Research Project"
+
+        # Format tags as comma-separated list
+        tags_str = ', '.join(tags) if tags else 'None'
+
+        note_content = f"""General Summary
+
+## Metadata
+- **Title**: {metadata.get('title', 'Untitled')}
+- **Authors**: {metadata.get('authors', 'Unknown')}
+- **Date**: {metadata.get('date', 'Unknown')}
+- **Publication**: {metadata.get('publication', 'N/A')}
+- **Type**: {document_type}
+- **URL**: {metadata.get('url', 'N/A')}
+
+## Tags
+{tags_str}
+
+## Summary
+{summary}
+
+---
+Created: {timestamp}
+Project: {project_name}
+"""
+        return note_content
+
+    def parse_general_summary_note(self, note_content: str) -> Optional[Dict]:
+        """
+        Parse a structured general summary note.
+
+        Args:
+            note_content: The note content (HTML or plain text)
+
+        Returns:
+            Dict with 'metadata', 'tags', and 'summary' keys, or None if parsing fails
+        """
+        try:
+            # Strip HTML if present
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(note_content, 'html.parser')
+            text = soup.get_text()
+
+            # Initialize result
+            result = {
+                'metadata': {},
+                'tags': [],
+                'summary': ''
+            }
+
+            # Parse metadata section
+            metadata_section = text.split('## Metadata')[1].split('## Tags')[0] if '## Metadata' in text else ''
+            if metadata_section:
+                import re
+                result['metadata']['title'] = re.search(r'\*\*Title\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['title'] = result['metadata']['title'].group(1).strip() if result['metadata']['title'] else ''
+
+                result['metadata']['authors'] = re.search(r'\*\*Authors\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['authors'] = result['metadata']['authors'].group(1).strip() if result['metadata']['authors'] else ''
+
+                result['metadata']['date'] = re.search(r'\*\*Date\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['date'] = result['metadata']['date'].group(1).strip() if result['metadata']['date'] else ''
+
+                result['metadata']['publication'] = re.search(r'\*\*Publication\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['publication'] = result['metadata']['publication'].group(1).strip() if result['metadata']['publication'] else ''
+
+                result['metadata']['type'] = re.search(r'\*\*Type\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['type'] = result['metadata']['type'].group(1).strip() if result['metadata']['type'] else ''
+
+                result['metadata']['url'] = re.search(r'\*\*URL\*\*:\s*(.+?)(?:\n|$)', metadata_section)
+                result['metadata']['url'] = result['metadata']['url'].group(1).strip() if result['metadata']['url'] else ''
+
+            # Parse tags section
+            tags_section = text.split('## Tags')[1].split('## Summary')[0] if '## Tags' in text else ''
+            if tags_section:
+                tags_line = tags_section.strip()
+                if tags_line and tags_line != 'None':
+                    result['tags'] = [tag.strip() for tag in tags_line.split(',')]
+
+            # Parse summary section
+            if '## Summary' in text:
+                summary_section = text.split('## Summary')[1].split('---')[0] if '---' in text else text.split('## Summary')[1]
+                result['summary'] = summary_section.strip()
+
+            return result
+
+        except Exception as e:
+            print(f"  ⚠️  Error parsing general summary note: {e}")
+            return None
+
+    def create_general_summary_with_tags(
+        self,
+        item_key: str,
+        content: str,
+        metadata: Dict
+    ) -> Optional[Dict]:
+        """
+        Create a general summary with metadata, tags, and document type.
 
         Args:
             item_key: The key of the item
             content: The source content to summarize
-            item_title: Title of the source
+            metadata: Metadata dict
 
         Returns:
-            The generated summary text, or None if generation fails
+            Dict with 'summary', 'tags', 'document_type' keys, or None if generation fails
         """
         try:
+            # Build tags list for prompt
+            tags_list = '\n'.join([f"- {tag}" for tag in self.tags])
+
             # Use Haiku for cost-efficient general summaries
-            prompt = f"""Please provide a concise general summary of this source in 2-3 paragraphs.
-Focus on the main topic, key arguments, and conclusions.
+            prompt = f"""You are analyzing sources for a research project.
 
-Title: {item_title}
+Project Overview:
+{self.project_overview}
 
-Content:
-{content[:50000]}  # Limit to ~50K chars to avoid token limits
+Available Tags:
+{tags_list}
 
-Summary:"""
+Source Metadata:
+- Title: {metadata.get('title', 'Untitled')}
+- Authors: {metadata.get('authors', 'Unknown')}
+- Date: {metadata.get('date', 'Unknown')}
+
+Source Content:
+{content[:50000]}
+
+Tasks:
+1. Provide a comprehensive summary of this source (2-3 paragraphs)
+2. Select all relevant tags from the provided list (only use tags from the list)
+3. Identify the document type (e.g., research paper, blog post, technical article, industry report, etc.)
+
+Format your response EXACTLY as follows:
+
+SUMMARY:
+<your summary here>
+
+TAGS:
+<comma-separated list of tags, e.g.: tag1, tag2, tag3>
+
+DOCUMENT_TYPE:
+<document type>"""
 
             response = self.anthropic_client.messages.create(
                 model=self.haiku_model,
@@ -320,16 +553,44 @@ Summary:"""
             )
 
             if response.content and len(response.content) > 0:
-                summary = response.content[0].text.strip()
+                llm_response = response.content[0].text.strip()
 
-                # Save to Zotero as a cached note
-                note_title = f"General Summary: {item_title}"
-                if self.create_note(item_key, summary, note_title, convert_markdown=True):
-                    return summary
+                # Parse LLM response
+                import re
+                summary_match = re.search(r'SUMMARY:\s*(.+?)\s*TAGS:', llm_response, re.DOTALL)
+                tags_match = re.search(r'TAGS:\s*(.+?)\s*DOCUMENT_TYPE:', llm_response, re.DOTALL)
+                doctype_match = re.search(r'DOCUMENT_TYPE:\s*(.+?)$', llm_response, re.DOTALL)
+
+                summary = summary_match.group(1).strip() if summary_match else "Summary not available"
+                tags_str = tags_match.group(1).strip() if tags_match else ""
+                document_type = doctype_match.group(1).strip() if doctype_match else "Unknown"
+
+                # Parse tags (comma-separated)
+                assigned_tags = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+
+                # Format and save structured note
+                note_content = self.format_general_summary_note(
+                    metadata,
+                    assigned_tags,
+                    summary,
+                    document_type
+                )
+
+                note_title = f"General Summary: {metadata.get('title', 'Untitled')}"
+                if self.create_note(item_key, note_content, note_title, convert_markdown=True):
+                    return {
+                        'summary': summary,
+                        'tags': assigned_tags,
+                        'document_type': document_type
+                    }
                 else:
                     print(f"  ⚠️  Failed to save general summary note")
-                    # Still return the summary even if save failed
-                    return summary
+                    # Still return the data even if save failed
+                    return {
+                        'summary': summary,
+                        'tags': assigned_tags,
+                        'document_type': document_type
+                    }
 
             return None
 
@@ -337,32 +598,47 @@ Summary:"""
             print(f"  ❌ Error creating general summary: {e}")
             return None
 
-    def evaluate_source_relevance(self, summary: str, item_title: str) -> Optional[int]:
+    def evaluate_source_relevance(
+        self,
+        summary: str,
+        metadata: Dict,
+        tags: List[str]
+    ) -> Optional[int]:
         """
         Evaluate how relevant a source is to the research brief.
 
         Args:
-            summary: The source summary (general or full content)
-            item_title: Title of the source
+            summary: The source summary
+            metadata: Metadata dict (title, authors, date, type, etc.)
+            tags: List of assigned tags
 
         Returns:
             Relevance score (0-10), or None if evaluation fails
         """
         try:
+            # Format tags for display
+            tags_str = ', '.join(tags) if tags else 'None'
+
             # Use Haiku for fast, cheap relevance scoring
             prompt = f"""Research Brief:
 {self.research_brief}
 
-Source Title: {item_title}
+Source Metadata:
+- Title: {metadata.get('title', 'Untitled')}
+- Authors: {metadata.get('authors', 'Unknown')}
+- Date: {metadata.get('date', 'Unknown')}
+- Type: {metadata.get('type', 'Unknown')}
+- Tags: {tags_str}
 
 Source Summary:
-{summary[:10000]}  # Limit to ~10K chars
+{summary[:10000]}
 
 Rate the relevance of this source to the research brief on a scale of 0-10, where:
 - 0 = Completely irrelevant
 - 5 = Somewhat relevant, provides background or tangential information
 - 10 = Highly relevant, directly addresses the research question
 
+Consider the tags, metadata, and summary content when evaluating relevance.
 Provide ONLY a single number (0-10) as your response, nothing else."""
 
             response = self.anthropic_client.messages.create(
@@ -462,6 +738,107 @@ Format your response using clear markdown headings and structure."""
         except Exception as e:
             print(f"  ❌ Error generating targeted summary: {e}")
             return None
+
+    def build_general_summaries(self, collection_key: str) -> None:
+        """
+        Phase 1: Build general summaries for all sources in a collection.
+
+        Args:
+            collection_key: The Zotero collection key to process
+        """
+        start_time = time.time()
+
+        print(f"\n{'='*80}")
+        print(f"📚 Building General Summaries")
+        print(f"{'='*80}")
+        print(f"Collection: {collection_key}")
+        print(f"Max Sources: {self.max_sources}")
+        print(f"Force Rebuild: {self.force_rebuild}")
+        print(f"Project: {self.project_overview.split(chr(10))[0] if self.project_overview else 'N/A'}")
+        print(f"Tags: {len(self.tags)} available")
+        print(f"{'='*80}\n")
+
+        # Get collection items
+        items = self.get_collection_items(collection_key)
+        if not items:
+            print("❌ No items found in collection")
+            return
+
+        # Limit sources if needed
+        if len(items) > self.max_sources:
+            print(f"⚠️  Collection has {len(items)} items, limiting to {self.max_sources}\n")
+            items = items[:self.max_sources]
+
+        # Process each source
+        processed = 0
+        skipped = 0
+        created = 0
+        errors = 0
+
+        for idx, item in enumerate(items, 1):
+            item_type = item['data'].get('itemType')
+            if item_type in ['attachment', 'note']:
+                continue
+
+            item_key = item['key']
+            item_title = item['data'].get('title', 'Untitled')
+
+            print(f"\n[{idx}/{len(items)}] 📚 {item_title}")
+
+            # Check if general summary already exists
+            if self.has_general_summary(item_key) and not self.force_rebuild:
+                print(f"  ✓ General summary already exists, skipping")
+                skipped += 1
+                continue
+
+            if self.force_rebuild and self.has_general_summary(item_key):
+                print(f"  🔄 Force rebuild enabled, regenerating summary")
+
+            # Extract metadata
+            metadata = self.extract_metadata(item)
+            print(f"  📋 Extracted metadata: {metadata['authors']} ({metadata['date']})")
+
+            # Get source content
+            content, content_type = self.get_source_content(item)
+            if not content:
+                print(f"  ⚠️  Could not extract content, skipping")
+                errors += 1
+                continue
+
+            print(f"  ✅ Extracted {len(content)} characters from {content_type}")
+
+            # Create general summary with tags
+            print(f"  🤖 Generating summary with tags (Haiku)...")
+            summary_data = self.create_general_summary_with_tags(item_key, content, metadata)
+
+            if summary_data:
+                tags_str = ', '.join(summary_data['tags'][:3]) if summary_data['tags'] else 'None'
+                if len(summary_data['tags']) > 3:
+                    tags_str += f", +{len(summary_data['tags'])-3} more"
+                print(f"  ✅ Summary created")
+                print(f"     Type: {summary_data['document_type']}")
+                print(f"     Tags: {tags_str}")
+                created += 1
+                processed += 1
+            else:
+                print(f"  ❌ Failed to create summary")
+                errors += 1
+
+            # Rate limiting
+            time.sleep(0.5)
+
+        # Final summary
+        elapsed_time = time.time() - start_time
+        print(f"\n{'='*80}")
+        print(f"✅ Build Complete")
+        print(f"{'='*80}")
+        print(f"Total items: {len(items)}")
+        print(f"Processed: {processed}")
+        print(f"Created: {created}")
+        print(f"Skipped (existing): {skipped}")
+        print(f"Errors: {errors}")
+        print(f"Processing time: {elapsed_time:.1f} seconds")
+        print(f"{'='*80}\n")
 
     def compile_research_html(
         self,
@@ -605,6 +982,17 @@ Format your response using clear markdown headings and structure."""
         }
         .source .metadata strong {
             color: #2c3e50;
+        }
+        .tag-badge {
+            display: inline-block;
+            background-color: #3498db;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-right: 6px;
+            margin-bottom: 4px;
+            font-weight: 500;
         }
         .source .content-section {
             margin-top: 25px;
@@ -764,6 +1152,8 @@ Format your response using clear markdown headings and structure."""
             score = source_data['score']
             content_type = source_data.get('content_type', 'Unknown')
             summary_data = source_data.get('summary_data', {})
+            metadata = source_data.get('metadata', {})
+            tags = source_data.get('tags', [])
 
             anchor = f"source-{idx}"
 
@@ -775,12 +1165,29 @@ Format your response using clear markdown headings and structure."""
             summary_markdown = summary_data.get('full_text', 'Summary not available')
             summary_html = markdown.markdown(summary_markdown, extensions=['extra', 'nl2br'])
 
+            # Format tags as badges
+            tags_html = ''
+            if tags:
+                tags_badges = [f'<span class="tag-badge">{tag}</span>' for tag in tags]
+                tags_html = f"<br><strong>Tags:</strong> {' '.join(tags_badges)}"
+
+            # Format metadata
+            authors_display = metadata.get('authors', 'Unknown')
+            date_display = metadata.get('date', 'Unknown')
+            publication_display = metadata.get('publication', 'N/A')
+            doc_type_display = metadata.get('type', content_type)
+            url_display = metadata.get('url', '')
+            url_html = f'<br><strong>URL:</strong> <a href="{url_display}" target="_blank">{url_display}</a>' if url_display else ''
+
             html_parts.append(f"""
     <div class="source" id="{anchor}">
         <h3>{idx}. {item_title}</h3>
         <div class="metadata">
-            <strong>Relevance Score:</strong> {score}/10<br>
-            <strong>Content Type:</strong> {content_type}<br>
+            <strong>Authors:</strong> {authors_display}<br>
+            <strong>Date:</strong> {date_display}<br>
+            <strong>Publication:</strong> {publication_display}<br>
+            <strong>Type:</strong> {doc_type_display}<br>
+            <strong>Relevance Score:</strong> {score}/10{tags_html}{url_html}<br>
             <strong>Zotero Link:</strong> <a href="{zotero_link}" target="_blank">Open in Zotero</a>
         </div>
         <div class="content-section">
@@ -797,8 +1204,8 @@ Format your response using clear markdown headings and structure."""
         <ul>
             <li>Total sources in collection: {stats.get('total', 0)}</li>
             <li>Sources evaluated: {stats.get('evaluated', 0)}</li>
+            <li>Missing summaries: {stats.get('missing_summaries', 0)}</li>
             <li>Relevant sources (≥ {self.relevance_threshold}/10): {stats.get('relevant', 0)}</li>
-            <li>Sources with cached summaries: {stats.get('cached', 0)}</li>
             <li>Processing time: {stats.get('time', 'N/A')}</li>
         </ul>
     </div>
@@ -822,9 +1229,9 @@ Format your response using clear markdown headings and structure."""
             print(f"\n  ❌ Error saving research report: {e}")
             return ""
 
-    def run_research(self, collection_key: str) -> str:
+    def run_query(self, collection_key: str) -> str:
         """
-        Main orchestration method to run the research workflow.
+        Phase 2: Query sources based on research brief using pre-built summaries.
 
         Args:
             collection_key: The Zotero collection key to analyze
@@ -835,12 +1242,11 @@ Format your response using clear markdown headings and structure."""
         start_time = time.time()
 
         print(f"\n{'='*80}")
-        print(f"🔬 Research Analysis Starting")
+        print(f"🔬 Research Query Starting")
         print(f"{'='*80}")
         print(f"Collection: {collection_key}")
         print(f"Relevance Threshold: {self.relevance_threshold}/10")
         print(f"Max Sources: {self.max_sources}")
-        print(f"Summary Caching: {'Enabled' if self.cache_summaries else 'Disabled'}")
         print(f"Summary Model: {self.summary_model} ({'Sonnet - High Quality' if self.use_sonnet else 'Haiku - Cost Efficient'})")
         print(f"{'='*80}\n")
 
@@ -855,13 +1261,13 @@ Format your response using clear markdown headings and structure."""
             print(f"⚠️  Collection has {len(items)} items, limiting to {self.max_sources}")
             items = items[:self.max_sources]
 
-        # Phase 1: Extract content and evaluate relevance
+        # Phase 1: Parse summaries and evaluate relevance
         print(f"\n{'='*80}")
-        print(f"Phase 1: Content Extraction & Relevance Evaluation")
+        print(f"Phase 1: Loading Summaries & Evaluating Relevance")
         print(f"{'='*80}\n")
 
         sources_with_scores = []
-        cached_summaries = 0
+        missing_summaries = 0
         evaluated = 0
 
         for idx, item in enumerate(items, 1):
@@ -874,36 +1280,38 @@ Format your response using clear markdown headings and structure."""
 
             print(f"\n[{idx}/{len(items)}] 📚 {item_title}")
 
-            # Get source content
-            content, content_type = self.get_source_content(item)
-            if not content:
-                print(f"  ⚠️  Could not extract content, skipping")
+            # Check for general summary
+            if not self.has_general_summary(item_key):
+                print(f"  ⚠️  No general summary found, skipping (run --build-summaries first)")
+                missing_summaries += 1
                 continue
 
-            print(f"  ✅ Extracted {len(content)} characters from {content_type}")
+            # Parse general summary note
+            print(f"  📖 Loading general summary...")
+            summary_note = self.get_note_with_prefix(item_key, 'General Summary:')
+            if not summary_note:
+                print(f"  ⚠️  Could not load summary note, skipping")
+                missing_summaries += 1
+                continue
 
-            # Get or create general summary for relevance evaluation
-            summary_for_eval = content
-            if self.cache_summaries:
-                if self.has_general_summary(item_key):
-                    print(f"  ♻️  Using cached general summary")
-                    summary_note = self.get_note_with_prefix(item_key, 'General Summary:')
-                    if summary_note:
-                        from bs4 import BeautifulSoup
-                        soup = BeautifulSoup(summary_note, 'html.parser')
-                        summary_for_eval = soup.get_text().strip()
-                        cached_summaries += 1
-                else:
-                    print(f"  🤖 Creating general summary (Haiku)...")
-                    summary = self.create_general_summary(item_key, content, item_title)
-                    if summary:
-                        summary_for_eval = summary
-                        cached_summaries += 1
-                        print(f"  💾 Cached for future use")
+            parsed_summary = self.parse_general_summary_note(summary_note)
+            if not parsed_summary:
+                print(f"  ⚠️  Could not parse summary note, skipping")
+                missing_summaries += 1
+                continue
 
-            # Evaluate relevance
+            metadata = parsed_summary['metadata']
+            tags = parsed_summary['tags']
+            summary = parsed_summary['summary']
+
+            tags_display = ', '.join(tags[:3]) if tags else 'None'
+            if len(tags) > 3:
+                tags_display += f", +{len(tags)-3} more"
+            print(f"  ✅ Loaded: {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
+
+            # Evaluate relevance using metadata and tags
             print(f"  🎯 Evaluating relevance (Haiku)...")
-            score = self.evaluate_source_relevance(summary_for_eval, item_title)
+            score = self.evaluate_source_relevance(summary, metadata, tags)
 
             if score is None:
                 print(f"  ⚠️  Could not evaluate relevance, skipping")
@@ -912,11 +1320,16 @@ Format your response using clear markdown headings and structure."""
             print(f"  📊 Relevance Score: {score}/10")
             evaluated += 1
 
+            # Get full content for detailed summary generation later
+            content, content_type = self.get_source_content(item)
+
             sources_with_scores.append({
                 'item': item,
                 'score': score,
-                'content': content,
-                'content_type': content_type
+                'content': content if content else summary,  # Fallback to summary if content unavailable
+                'content_type': content_type if content else metadata.get('type', 'Unknown'),
+                'metadata': metadata,
+                'tags': tags
             })
 
             # Rate limiting
@@ -934,6 +1347,8 @@ Format your response using clear markdown headings and structure."""
 
         if not relevant_sources:
             print(f"\n⚠️  No sources meet the relevance threshold of {self.relevance_threshold}/10")
+            if missing_summaries > 0:
+                print(f"  Note: {missing_summaries} sources were missing summaries. Run --build-summaries first.")
             print(f"  Try lowering the threshold or refining your research brief")
             return ""
 
@@ -974,7 +1389,7 @@ Format your response using clear markdown headings and structure."""
             'total': len(items),
             'evaluated': evaluated,
             'relevant': len(relevant_sources),
-            'cached': cached_summaries,
+            'missing_summaries': missing_summaries,
             'time': f"{elapsed_time:.1f} seconds"
         }
 
@@ -982,12 +1397,12 @@ Format your response using clear markdown headings and structure."""
 
         # Final summary
         print(f"\n{'='*80}")
-        print(f"✅ Research Complete")
+        print(f"✅ Query Complete")
         print(f"{'='*80}")
         print(f"Total sources: {stats['total']}")
         print(f"Evaluated: {stats['evaluated']}")
+        print(f"Missing summaries: {stats['missing_summaries']}")
         print(f"Relevant: {stats['relevant']}")
-        print(f"Cached summaries: {stats['cached']}")
         print(f"Processing time: {stats['time']}")
         print(f"Report: {output_file}")
         print(f"{'='*80}\n")
@@ -1005,29 +1420,48 @@ def main():
 
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description='Analyze Zotero collection based on research brief'
+        description='Two-phase research assistant for Zotero collections',
+        epilog="""
+Examples:
+  # List collections
+  python researcher.py --list-collections
+
+  # Phase 1: Build general summaries
+  python researcher.py --build-summaries --collection KEY \\
+      --project-overview overview.txt --tags tags.txt
+
+  # Phase 2: Query with research brief
+  python researcher.py --query --collection KEY --brief brief.txt
+
+  # Rebuild all summaries
+  python researcher.py --build-summaries --collection KEY \\
+      --project-overview overview.txt --tags tags.txt --force
+        """
     )
-    parser.add_argument(
+
+    # Mode selection
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         '--list-collections',
         action='store_true',
         help='List all available collections and exit'
     )
+    mode_group.add_argument(
+        '--build-summaries',
+        action='store_true',
+        help='Phase 1: Build general summaries with metadata and tags'
+    )
+    mode_group.add_argument(
+        '--query',
+        action='store_true',
+        help='Phase 2: Query sources based on research brief (default if no mode specified)'
+    )
+
+    # Common arguments
     parser.add_argument(
         '--collection',
         type=str,
-        help='Collection key to analyze (overrides ZOTERO_COLLECTION_KEY env var)'
-    )
-    parser.add_argument(
-        '--brief',
-        type=str,
-        required='--list-collections' not in __import__('sys').argv,
-        help='Path to research brief text file (required)'
-    )
-    parser.add_argument(
-        '--threshold',
-        type=int,
-        default=6,
-        help='Relevance threshold 0-10 (default: 6)'
+        help='Collection key to process (overrides ZOTERO_COLLECTION_KEY env var)'
     )
     parser.add_argument(
         '--max-sources',
@@ -1036,28 +1470,57 @@ def main():
         help='Maximum number of sources to process (default: 50)'
     )
     parser.add_argument(
-        '--output',
-        type=str,
-        help='Output HTML file path (default: auto-generated)'
-    )
-    parser.add_argument(
-        '--no-cache-summaries',
-        action='store_true',
-        help='Disable summary caching'
-    )
-    parser.add_argument(
-        '--use-sonnet',
-        action='store_true',
-        help='Use Sonnet for detailed summaries (higher quality, higher cost). Default: Haiku (cost-efficient)'
-    )
-    parser.add_argument(
         '--verbose',
         '-v',
         action='store_true',
         help='Show detailed information about all child items'
     )
 
+    # Phase 1 (build) arguments
+    parser.add_argument(
+        '--project-overview',
+        type=str,
+        help='[Build] Path to project overview text file'
+    )
+    parser.add_argument(
+        '--tags',
+        type=str,
+        help='[Build] Path to tags text file (one tag per line)'
+    )
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='[Build] Force rebuild of existing summaries'
+    )
+
+    # Phase 2 (query) arguments
+    parser.add_argument(
+        '--brief',
+        type=str,
+        help='[Query] Path to research brief text file'
+    )
+    parser.add_argument(
+        '--threshold',
+        type=int,
+        default=6,
+        help='[Query] Relevance threshold 0-10 (default: 6)'
+    )
+    parser.add_argument(
+        '--output',
+        type=str,
+        help='[Query] Output HTML file path (default: auto-generated)'
+    )
+    parser.add_argument(
+        '--use-sonnet',
+        action='store_true',
+        help='[Query] Use Sonnet for detailed summaries (higher quality, higher cost). Default: Haiku (cost-efficient)'
+    )
+
     args = parser.parse_args()
+
+    # Determine mode (default to query for backward compatibility)
+    if not args.list_collections and not args.build_summaries and not args.query:
+        args.query = True
 
     # Get configuration from environment
     library_id = os.getenv('ZOTERO_LIBRARY_ID')
@@ -1077,17 +1540,19 @@ def main():
         print("Please set ANTHROPIC_API_KEY in your .env file")
         return
 
-    # Initialize researcher (with placeholder brief for --list-collections)
+    # Initialize researcher
     researcher = ZoteroResearcher(
         library_id,
         library_type,
         zotero_api_key,
         anthropic_api_key,
-        research_brief="",  # Will be loaded below if needed
+        research_brief="",
+        project_overview="",
+        tags=[],
         relevance_threshold=args.threshold,
         max_sources=args.max_sources,
-        cache_summaries=not args.no_cache_summaries,
         use_sonnet=args.use_sonnet,
+        force_rebuild=args.force,
         verbose=args.verbose
     )
 
@@ -1105,27 +1570,73 @@ def main():
         print("\nTip: Run with --list-collections to see available collections")
         return
 
-    # Load research brief
-    try:
-        research_brief = researcher.load_research_brief(args.brief)
-        researcher.research_brief = research_brief
-        print(f"✅ Loaded research brief from: {args.brief}")
-        print(f"   Brief length: {len(research_brief)} characters\n")
-    except Exception as e:
-        print(f"❌ Error loading research brief: {e}")
+    # Handle --build-summaries mode
+    if args.build_summaries:
+        if not args.project_overview:
+            print("Error: --project-overview is required for --build-summaries")
+            print("Example: python researcher.py --build-summaries --collection KEY \\")
+            print("         --project-overview overview.txt --tags tags.txt")
+            return
+
+        if not args.tags:
+            print("Error: --tags is required for --build-summaries")
+            print("Example: python researcher.py --build-summaries --collection KEY \\")
+            print("         --project-overview overview.txt --tags tags.txt")
+            return
+
+        # Load project overview and tags
+        try:
+            project_overview = researcher.load_project_overview(args.project_overview)
+            researcher.project_overview = project_overview
+            print(f"✅ Loaded project overview from: {args.project_overview}")
+            print(f"   Length: {len(project_overview)} characters")
+        except Exception as e:
+            print(f"❌ Error loading project overview: {e}")
+            return
+
+        try:
+            tags = researcher.load_tags(args.tags)
+            researcher.tags = tags
+            print(f"✅ Loaded {len(tags)} tags from: {args.tags}")
+            print(f"   Tags: {', '.join(tags[:5])}{', ...' if len(tags) > 5 else ''}\n")
+        except Exception as e:
+            print(f"❌ Error loading tags: {e}")
+            return
+
+        # Build summaries
+        researcher.build_general_summaries(collection_key)
         return
 
-    # Run research
-    output_file = researcher.run_research(collection_key)
+    # Handle --query mode
+    if args.query:
+        if not args.brief:
+            print("Error: --brief is required for --query mode")
+            print("Example: python researcher.py --query --collection KEY --brief brief.txt")
+            print("\nNote: You must run --build-summaries first to create general summaries.")
+            return
 
-    if output_file and args.output:
-        # Rename to user-specified output
-        import shutil
+        # Load research brief
         try:
-            shutil.move(output_file, args.output)
-            print(f"✅ Report moved to: {args.output}")
+            research_brief = researcher.load_research_brief(args.brief)
+            researcher.research_brief = research_brief
+            print(f"✅ Loaded research brief from: {args.brief}")
+            print(f"   Brief length: {len(research_brief)} characters\n")
         except Exception as e:
-            print(f"⚠️  Could not move to {args.output}: {e}")
+            print(f"❌ Error loading research brief: {e}")
+            return
+
+        # Run query
+        output_file = researcher.run_query(collection_key)
+
+        if output_file and args.output:
+            # Rename to user-specified output
+            import shutil
+            try:
+                shutil.move(output_file, args.output)
+                print(f"✅ Report moved to: {args.output}")
+            except Exception as e:
+                print(f"⚠️  Could not move to {args.output}: {e}")
+        return
 
 
 if __name__ == '__main__':
