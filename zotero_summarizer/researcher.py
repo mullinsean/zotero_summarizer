@@ -450,44 +450,68 @@ Project: {project_name}
                 'summary': ''
             }
 
+            # After HTML->text conversion, markdown "## Heading" becomes just "Heading"
+            # Try both formats for compatibility
+            metadata_marker = 'Metadata' if 'Metadata' in text and '## Metadata' not in text else '## Metadata'
+            tags_marker = 'Tags' if 'Tags' in text and '## Tags' not in text else '## Tags'
+            summary_marker = 'Summary' if 'Summary' in text and '## Summary' not in text else '## Summary'
+
             # Parse metadata section
-            metadata_section = text.split('## Metadata')[1].split('## Tags')[0] if '## Metadata' in text else ''
-            if metadata_section:
-                import re
-                result['metadata']['title'] = re.search(r'\*\*Title\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['title'] = result['metadata']['title'].group(1).strip() if result['metadata']['title'] else ''
+            if metadata_marker in text:
+                parts = text.split(metadata_marker)
+                if len(parts) > 1:
+                    # Find next section marker
+                    metadata_section = parts[1]
+                    if tags_marker in metadata_section:
+                        metadata_section = metadata_section.split(tags_marker)[0]
 
-                result['metadata']['authors'] = re.search(r'\*\*Authors\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['authors'] = result['metadata']['authors'].group(1).strip() if result['metadata']['authors'] else ''
+                    import re
+                    # Look for both markdown bold (**) and plain text patterns
+                    result['metadata']['title'] = re.search(r'(?:\*\*)?Title(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['title'] = result['metadata']['title'].group(1).strip() if result['metadata']['title'] else ''
 
-                result['metadata']['date'] = re.search(r'\*\*Date\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['date'] = result['metadata']['date'].group(1).strip() if result['metadata']['date'] else ''
+                    result['metadata']['authors'] = re.search(r'(?:\*\*)?Authors(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['authors'] = result['metadata']['authors'].group(1).strip() if result['metadata']['authors'] else ''
 
-                result['metadata']['publication'] = re.search(r'\*\*Publication\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['publication'] = result['metadata']['publication'].group(1).strip() if result['metadata']['publication'] else ''
+                    result['metadata']['date'] = re.search(r'(?:\*\*)?Date(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['date'] = result['metadata']['date'].group(1).strip() if result['metadata']['date'] else ''
 
-                result['metadata']['type'] = re.search(r'\*\*Type\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['type'] = result['metadata']['type'].group(1).strip() if result['metadata']['type'] else ''
+                    result['metadata']['publication'] = re.search(r'(?:\*\*)?Publication(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['publication'] = result['metadata']['publication'].group(1).strip() if result['metadata']['publication'] else ''
 
-                result['metadata']['url'] = re.search(r'\*\*URL\*\*:\s*(.+?)(?:\n|$)', metadata_section)
-                result['metadata']['url'] = result['metadata']['url'].group(1).strip() if result['metadata']['url'] else ''
+                    result['metadata']['type'] = re.search(r'(?:\*\*)?Type(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['type'] = result['metadata']['type'].group(1).strip() if result['metadata']['type'] else ''
+
+                    result['metadata']['url'] = re.search(r'(?:\*\*)?URL(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
+                    result['metadata']['url'] = result['metadata']['url'].group(1).strip() if result['metadata']['url'] else ''
 
             # Parse tags section
-            tags_section = text.split('## Tags')[1].split('## Summary')[0] if '## Tags' in text else ''
-            if tags_section:
-                tags_line = tags_section.strip()
-                if tags_line and tags_line != 'None':
-                    result['tags'] = [tag.strip() for tag in tags_line.split(',')]
+            if tags_marker in text:
+                parts = text.split(tags_marker)
+                if len(parts) > 1:
+                    tags_section = parts[1]
+                    if summary_marker in tags_section:
+                        tags_section = tags_section.split(summary_marker)[0]
+
+                    tags_line = tags_section.strip()
+                    if tags_line and tags_line.lower() != 'none' and tags_line != 'N/A':
+                        result['tags'] = [tag.strip() for tag in tags_line.split(',') if tag.strip()]
 
             # Parse summary section
-            if '## Summary' in text:
-                summary_section = text.split('## Summary')[1].split('---')[0] if '---' in text else text.split('## Summary')[1]
-                result['summary'] = summary_section.strip()
+            if summary_marker in text:
+                parts = text.split(summary_marker)
+                if len(parts) > 1:
+                    summary_section = parts[1]
+                    if '---' in summary_section:
+                        summary_section = summary_section.split('---')[0]
+                    result['summary'] = summary_section.strip()
 
             return result
 
         except Exception as e:
             print(f"  ⚠️  Error parsing general summary note: {e}")
+            import traceback
+            traceback.print_exc()
             return None
 
     def create_general_summary_with_tags(
@@ -651,16 +675,28 @@ Provide ONLY a single number (0-10) as your response, nothing else."""
 
             if response.content and len(response.content) > 0:
                 score_text = response.content[0].text.strip()
-                # Extract number from response
+
+                # Try to extract number from response (handle various formats)
                 import re
-                match = re.search(r'\b(\d+)\b', score_text)
+                # Try matching just a number first
+                match = re.search(r'^(\d+)$', score_text)
+                if not match:
+                    # Try finding any number in the text
+                    match = re.search(r'\b(\d+)\b', score_text)
+
                 if match:
                     score = int(match.group(1))
                     # Clamp to 0-10 range
                     score = max(0, min(10, score))
                     return score
+                else:
+                    if self.verbose:
+                        print(f"  ⚠️  Could not parse score from response: '{score_text[:100]}'")
+                    else:
+                        print(f"  ⚠️  Could not parse relevance score from LLM response")
+                    return None
 
-            print(f"  ⚠️  Could not parse relevance score from LLM response")
+            print(f"  ⚠️  Empty response from LLM")
             return None
 
         except Exception as e:
