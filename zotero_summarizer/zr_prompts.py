@@ -13,7 +13,8 @@ def general_summary_prompt(
     authors: str,
     date: str,
     content: str,
-    truncated: bool = False
+    truncated: bool = False,
+    char_limit: int = 50000
 ) -> str:
     """
     Prompt for generating general summaries with tags and document type.
@@ -26,13 +27,14 @@ def general_summary_prompt(
         title: Source title
         authors: Source authors
         date: Publication date
-        content: Source content (truncated to ~50K chars)
+        content: Source content (truncated to char_limit)
         truncated: If True, content has been truncated
+        char_limit: Character limit used for truncation
 
     Returns:
         Formatted prompt string
     """
-    truncation_note = "\n\n**NOTE: This source has been truncated to 50,000 characters. You are analyzing a partial view of the full content.**" if truncated else ""
+    truncation_note = f"\n\n**NOTE: This source has been truncated to {char_limit:,} characters. You are analyzing a partial view of the full content.**" if truncated else ""
 
     return f"""You are analyzing sources for a research project.
 
@@ -120,7 +122,8 @@ def targeted_summary_prompt(
     title: str,
     content_type: str,
     content: str,
-    truncated: bool = False
+    truncated: bool = False,
+    char_limit: int = 100000
 ) -> str:
     """
     Prompt for generating detailed targeted summaries.
@@ -132,13 +135,14 @@ def targeted_summary_prompt(
         research_brief: Research question/brief
         title: Source title
         content_type: Type of content (HTML, PDF, etc.)
-        content: Full source content (truncated to ~100K chars)
+        content: Full source content (truncated to char_limit)
         truncated: If True, content has been truncated
+        char_limit: Character limit used for truncation
 
     Returns:
         Formatted prompt string
     """
-    truncation_note = "\n\n**NOTE: This source has been truncated to 100,000 characters. You are analyzing a partial view of the full content.**" if truncated else ""
+    truncation_note = f"\n\n**NOTE: This source has been truncated to {char_limit:,} characters. You are analyzing a partial view of the full content.**" if truncated else ""
 
     return f"""Research Brief:
 {research_brief}

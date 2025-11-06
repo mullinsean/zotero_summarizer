@@ -70,6 +70,10 @@ def validate_project_name(name: str) -> str:
 class ZoteroResearcher(ZoteroBaseProcessor):
     """Research assistant for analyzing Zotero collections based on research briefs."""
 
+    # Content truncation limits for LLM processing
+    GENERAL_SUMMARY_CHAR_LIMIT = 50000   # Phase 1: General summaries
+    TARGETED_SUMMARY_CHAR_LIMIT = 100000  # Phase 2: Targeted summaries
+
     def __init__(
         self,
         library_id: str,
@@ -624,13 +628,16 @@ Project: {self.project_name}
             tags_list = '\n'.join([f"- {tag}" for tag in self.tags])
 
             # Use Haiku for cost-efficient general summaries
+            truncated = len(content) > self.GENERAL_SUMMARY_CHAR_LIMIT
             prompt = zr_prompts.general_summary_prompt(
                 project_overview=self.project_overview,
                 tags_list=tags_list,
                 title=metadata.get('title', 'Untitled'),
                 authors=metadata.get('authors', 'Unknown'),
                 date=metadata.get('date', 'Unknown'),
-                content=content[:50000]
+                content=content[:self.GENERAL_SUMMARY_CHAR_LIMIT],
+                truncated=truncated,
+                char_limit=self.GENERAL_SUMMARY_CHAR_LIMIT
             )
 
             response = self.anthropic_client.messages.create(
@@ -783,15 +790,16 @@ Project: {self.project_name}
         """
         try:
             item_title = item['data'].get('title', 'Untitled')
-            truncated = len(content) > 100000
+            truncated = len(content) > self.TARGETED_SUMMARY_CHAR_LIMIT
 
             # Use configured model (Haiku by default, Sonnet for production)
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000],  # Limit to ~100K chars
-                truncated=truncated
+                content=content[:self.TARGETED_SUMMARY_CHAR_LIMIT],
+                truncated=truncated,
+                char_limit=self.TARGETED_SUMMARY_CHAR_LIMIT
             )
 
             response = self.anthropic_client.messages.create(
@@ -916,8 +924,8 @@ Project: {self.project_name}
                 continue
 
             content_len = len(content)
-            if content_len > 50000:
-                print(f"  ✅ Ready for processing ({content_len:,} chars, {content_type}) - will truncate to 50,000")
+            if content_len > self.GENERAL_SUMMARY_CHAR_LIMIT:
+                print(f"  ✅ Ready for processing ({content_len:,} chars, {content_type}) - will truncate to {self.GENERAL_SUMMARY_CHAR_LIMIT:,}")
             else:
                 print(f"  ✅ Ready for processing ({content_len:,} chars, {content_type})")
 
@@ -944,7 +952,7 @@ Project: {self.project_name}
 
         for item_data in items_to_process:
             content = item_data['content']
-            truncated = len(content) > 50000
+            truncated = len(content) > self.GENERAL_SUMMARY_CHAR_LIMIT
 
             prompt = zr_prompts.general_summary_prompt(
                 project_overview=self.project_overview,
@@ -952,8 +960,9 @@ Project: {self.project_name}
                 title=item_data['metadata'].get('title', 'Untitled'),
                 authors=item_data['metadata'].get('authors', 'Unknown'),
                 date=item_data['metadata'].get('date', 'Unknown'),
-                content=content[:50000],
-                truncated=truncated
+                content=content[:self.GENERAL_SUMMARY_CHAR_LIMIT],
+                truncated=truncated,
+                char_limit=self.GENERAL_SUMMARY_CHAR_LIMIT
             )
 
             batch_requests.append({
@@ -2070,10 +2079,10 @@ Edit this note before running --query-summary"""
             content = source_data['content']
             content_type = source_data['content_type']
             content_len = len(content)
-            truncated = content_len > 100000
+            truncated = content_len > self.TARGETED_SUMMARY_CHAR_LIMIT
 
             if truncated:
-                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to 100,000")
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to {self.TARGETED_SUMMARY_CHAR_LIMIT:,}")
             else:
                 print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars)")
 
@@ -2081,8 +2090,9 @@ Edit this note before running --query-summary"""
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000],
-                truncated=truncated
+                content=content[:self.TARGETED_SUMMARY_CHAR_LIMIT],
+                truncated=truncated,
+                char_limit=self.TARGETED_SUMMARY_CHAR_LIMIT
             )
 
             batch_requests.append({
@@ -2387,10 +2397,10 @@ Edit this note before running --query-summary"""
             content = source_data['content']
             content_type = source_data['content_type']
             content_len = len(content)
-            truncated = content_len > 100000
+            truncated = content_len > self.TARGETED_SUMMARY_CHAR_LIMIT
 
             if truncated:
-                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to 100,000")
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to {self.TARGETED_SUMMARY_CHAR_LIMIT:,}")
             else:
                 print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars)")
 
@@ -2398,8 +2408,9 @@ Edit this note before running --query-summary"""
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000],
-                truncated=truncated
+                content=content[:self.TARGETED_SUMMARY_CHAR_LIMIT],
+                truncated=truncated,
+                char_limit=self.TARGETED_SUMMARY_CHAR_LIMIT
             )
 
             batch_requests.append({
