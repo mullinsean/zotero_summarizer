@@ -21,8 +21,10 @@ from anthropic import Anthropic
 # Import prompt templates - handle both relative and absolute imports
 try:
     from . import zr_prompts
+    from .zr_llm_client import ZRLLMClient
 except ImportError:
     import zr_prompts
+    from zr_llm_client import ZRLLMClient
 
 # Handle both relative and absolute imports
 try:
@@ -47,6 +49,8 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         max_sources: int = 50,
         use_sonnet: bool = False,
         force_rebuild: bool = False,
+        max_workers: int = 10,
+        rate_limit_delay: float = 0.1,
         verbose: bool = False
     ):
         """
@@ -64,6 +68,8 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             max_sources: Maximum number of sources to process (default: 50)
             use_sonnet: If True, use Sonnet for detailed summaries (higher quality, higher cost) (default: False)
             force_rebuild: If True, force rebuild of existing general summaries (default: False)
+            max_workers: Number of concurrent threads for parallel LLM calls (default: 10)
+            rate_limit_delay: Delay in seconds between parallel request submissions (default: 0.1)
             verbose: If True, show detailed information about all child items
         """
         # Initialize base class
@@ -78,6 +84,8 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         self.max_sources = max_sources
         self.use_sonnet = use_sonnet
         self.force_rebuild = force_rebuild
+        self.max_workers = max_workers
+        self.rate_limit_delay = rate_limit_delay
 
         # Use Haiku for quick tasks (relevance, general summaries)
         self.haiku_model = "claude-haiku-4-5-20251001"
@@ -87,6 +95,13 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         # Default to Haiku for detailed summaries (cost-efficient)
         # Use Sonnet only when use_sonnet=True (production mode)
         self.summary_model = self.sonnet_model if use_sonnet else self.haiku_model
+
+        # Initialize centralized LLM client for all API calls
+        self.llm_client = ZRLLMClient(
+            anthropic_client=self.anthropic_client,
+            default_model=self.haiku_model,
+            verbose=verbose
+        )
 
     def load_research_brief(self, brief_file: str) -> str:
         """
@@ -796,11 +811,11 @@ Project: {project_name}
             print(f"⚠️  Collection has {len(items)} items, limiting to {self.max_sources}\n")
             items = items[:self.max_sources]
 
-        # Process each source
-        processed = 0
+        # Step 1: Filter and prepare items for processing
+        print(f"Step 1: Preparing items for batch processing...\n")
+
+        items_to_process = []
         skipped = 0
-        created = 0
-        errors = 0
 
         for idx, item in enumerate(items, 1):
             item_type = item['data'].get('itemType')
@@ -810,49 +825,146 @@ Project: {project_name}
             item_key = item['key']
             item_title = item['data'].get('title', 'Untitled')
 
-            print(f"\n[{idx}/{len(items)}] 📚 {item_title}")
-
             # Check if general summary already exists
             if self.has_general_summary(item_key) and not self.force_rebuild:
-                print(f"  ✓ General summary already exists, skipping")
+                print(f"[{idx}/{len(items)}] ✓ {item_title} - already has summary, skipping")
                 skipped += 1
                 continue
 
             if self.force_rebuild and self.has_general_summary(item_key):
-                print(f"  🔄 Force rebuild enabled, regenerating summary")
+                print(f"[{idx}/{len(items)}] 🔄 {item_title} - force rebuild enabled")
+            else:
+                print(f"[{idx}/{len(items)}] 📚 {item_title}")
 
-            # Extract metadata
+            # Extract metadata and content
             metadata = self.extract_metadata(item)
-            print(f"  📋 Extracted metadata: {metadata['authors']} ({metadata['date']})")
-
-            # Get source content
             content, content_type = self.get_source_content(item)
+
             if not content:
                 print(f"  ⚠️  Could not extract content, skipping")
-                errors += 1
                 continue
 
-            print(f"  ✅ Extracted {len(content)} characters from {content_type}")
+            print(f"  ✅ Ready for processing ({len(content)} chars, {content_type})")
 
-            # Create general summary with tags
-            print(f"  🤖 Generating summary with tags (Haiku)...")
-            summary_data = self.create_general_summary_with_tags(item_key, content, metadata)
+            items_to_process.append({
+                'item': item,
+                'item_key': item_key,
+                'item_title': item_title,
+                'metadata': metadata,
+                'content': content,
+                'content_type': content_type,
+                'index': idx
+            })
 
-            if summary_data:
-                tags_str = ', '.join(summary_data['tags'][:3]) if summary_data['tags'] else 'None'
-                if len(summary_data['tags']) > 3:
-                    tags_str += f", +{len(summary_data['tags'])-3} more"
-                print(f"  ✅ Summary created")
-                print(f"     Type: {summary_data['document_type']}")
-                print(f"     Tags: {tags_str}")
-                created += 1
-                processed += 1
+        if not items_to_process:
+            print(f"\n⚠️  No items to process (all skipped or errors)")
+            return
+
+        # Step 2: Build batch requests for LLM
+        print(f"\nStep 2: Building {len(items_to_process)} batch requests...")
+
+        tags_list = '\n'.join([f"- {tag}" for tag in self.tags])
+        batch_requests = []
+
+        for item_data in items_to_process:
+            prompt = zr_prompts.general_summary_prompt(
+                project_overview=self.project_overview,
+                tags_list=tags_list,
+                title=item_data['metadata'].get('title', 'Untitled'),
+                authors=item_data['metadata'].get('authors', 'Unknown'),
+                date=item_data['metadata'].get('date', 'Unknown'),
+                content=item_data['content'][:50000]
+            )
+
+            batch_requests.append({
+                'id': item_data['item_key'],
+                'prompt': prompt,
+                'max_tokens': 2048,
+                'model': self.haiku_model
+            })
+
+        # Step 3: Process batch with parallel LLM calls
+        print(f"Step 3: Generating summaries in parallel ({self.max_workers} workers)...")
+        print(f"Progress: ", end='', flush=True)
+
+        def progress_callback(completed, total):
+            print(f"{completed}/{total}...", end=' ', flush=True)
+
+        # Parse response function for batch processing
+        def parse_summary_response(response_text: str) -> Optional[Dict]:
+            """Parse SUMMARY/TAGS/DOCUMENT_TYPE format."""
+            try:
+                import re
+                result = {}
+
+                summary_match = re.search(r'SUMMARY:\s*(.+?)(?=TAGS:)', response_text, re.DOTALL)
+                result['summary'] = summary_match.group(1).strip() if summary_match else ''
+
+                tags_match = re.search(r'TAGS:\s*(.+?)(?=DOCUMENT_TYPE:)', response_text, re.DOTALL)
+                tags_str = tags_match.group(1).strip() if tags_match else ''
+                result['tags'] = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
+
+                type_match = re.search(r'DOCUMENT_TYPE:\s*(.+?)(?:\n|$)', response_text, re.DOTALL)
+                result['document_type'] = type_match.group(1).strip() if type_match else 'Unknown'
+
+                return result if result['summary'] else None
+            except Exception:
+                return None
+
+        batch_results = self.llm_client.call_batch_with_parsing(
+            requests=batch_requests,
+            parser=parse_summary_response,
+            max_workers=self.max_workers,
+            rate_limit_delay=self.rate_limit_delay,
+            progress_callback=progress_callback
+        )
+
+        print("\n")
+
+        # Step 4: Create notes for successful results
+        print(f"Step 4: Creating notes in Zotero...")
+
+        created = 0
+        errors = 0
+
+        for item_data in items_to_process:
+            item_key = item_data['item_key']
+            item_title = item_data['item_title']
+            metadata = item_data['metadata']
+
+            summary_data = batch_results.get(item_key)
+
+            if summary_data and summary_data.get('summary'):
+                # Format and create note
+                note_content = self.format_general_summary_note(
+                    metadata=metadata,
+                    tags=summary_data['tags'],
+                    summary=summary_data['summary'],
+                    document_type=summary_data['document_type']
+                )
+
+                success = self.create_note(
+                    parent_key=item_key,
+                    content=note_content,
+                    title='General Summary:',
+                    convert_markdown=True
+                )
+
+                if success:
+                    tags_str = ', '.join(summary_data['tags'][:3]) if summary_data['tags'] else 'None'
+                    if len(summary_data['tags']) > 3:
+                        tags_str += f", +{len(summary_data['tags'])-3} more"
+                    print(f"  ✅ {item_title}")
+                    print(f"     Type: {summary_data['document_type']} | Tags: {tags_str}")
+                    created += 1
+                else:
+                    print(f"  ❌ {item_title} - failed to create note")
+                    errors += 1
             else:
-                print(f"  ❌ Failed to create summary")
+                print(f"  ❌ {item_title} - failed to generate summary")
                 errors += 1
 
-            # Rate limiting
-            time.sleep(0.5)
+        processed = created + errors
 
         # Final summary
         elapsed_time = time.time() - start_time
