@@ -1785,16 +1785,21 @@ Examples:
   # List collections
   python researcher.py --list-collections
 
-  # Phase 1: Build general summaries
+  # Initialize collection for Zotero-native workflow
+  python researcher.py --init-collection --collection KEY
+
+  # Phase 1: Build general summaries (Zotero-native mode)
+  python researcher.py --build-summaries --collection KEY
+
+  # Phase 1: Build general summaries (file-based mode)
   python researcher.py --build-summaries --collection KEY \\
       --project-overview overview.txt --tags tags.txt
 
-  # Phase 2: Query with research brief
+  # Phase 2: Query with research brief (file-based mode)
   python researcher.py --query --collection KEY --brief brief.txt
 
   # Rebuild all summaries
-  python researcher.py --build-summaries --collection KEY \\
-      --project-overview overview.txt --tags tags.txt --force
+  python researcher.py --build-summaries --collection KEY --force
         """
     )
 
@@ -1844,12 +1849,12 @@ Examples:
     parser.add_argument(
         '--project-overview',
         type=str,
-        help='[Build] Path to project overview text file'
+        help='[Build] Path to project overview text file (file-based mode). If omitted, loads from Zotero notes (Zotero-native mode)'
     )
     parser.add_argument(
         '--tags',
         type=str,
-        help='[Build] Path to tags text file (one tag per line)'
+        help='[Build] Path to tags text file (file-based mode). If omitted, loads from Zotero notes (Zotero-native mode)'
     )
     parser.add_argument(
         '--force',
@@ -1946,38 +1951,28 @@ Examples:
 
     # Handle --build-summaries mode
     if args.build_summaries:
-        if not args.project_overview:
-            print("Error: --project-overview is required for --build-summaries")
-            print("Example: python researcher.py --build-summaries --collection KEY \\")
-            print("         --project-overview overview.txt --tags tags.txt")
-            return
+        # Load project overview and tags from files if provided (file-based mode)
+        if args.project_overview:
+            try:
+                project_overview = researcher.load_project_overview(args.project_overview)
+                researcher.project_overview = project_overview
+                print(f"✅ Loaded project overview from: {args.project_overview}")
+                print(f"   Length: {len(project_overview)} characters")
+            except Exception as e:
+                print(f"❌ Error loading project overview: {e}")
+                return
 
-        if not args.tags:
-            print("Error: --tags is required for --build-summaries")
-            print("Example: python researcher.py --build-summaries --collection KEY \\")
-            print("         --project-overview overview.txt --tags tags.txt")
-            return
+        if args.tags:
+            try:
+                tags = researcher.load_tags(args.tags)
+                researcher.tags = tags
+                print(f"✅ Loaded {len(tags)} tags from: {args.tags}")
+                print(f"   Tags: {', '.join(tags[:5])}{', ...' if len(tags) > 5 else ''}\n")
+            except Exception as e:
+                print(f"❌ Error loading tags: {e}")
+                return
 
-        # Load project overview and tags
-        try:
-            project_overview = researcher.load_project_overview(args.project_overview)
-            researcher.project_overview = project_overview
-            print(f"✅ Loaded project overview from: {args.project_overview}")
-            print(f"   Length: {len(project_overview)} characters")
-        except Exception as e:
-            print(f"❌ Error loading project overview: {e}")
-            return
-
-        try:
-            tags = researcher.load_tags(args.tags)
-            researcher.tags = tags
-            print(f"✅ Loaded {len(tags)} tags from: {args.tags}")
-            print(f"   Tags: {', '.join(tags[:5])}{', ...' if len(tags) > 5 else ''}\n")
-        except Exception as e:
-            print(f"❌ Error loading tags: {e}")
-            return
-
-        # Build summaries
+        # Build summaries (will auto-detect mode: file-based vs Zotero-native)
         researcher.build_general_summaries(collection_key)
         return
 
