@@ -412,14 +412,15 @@ class ZoteroBaseProcessor:
             else:
                 html_content = full_content
 
-            note_template = self.zot.item_template('note')
-            note_template['note'] = html_content
-            note_template['collections'] = [collection_key]
+            # Create note item manually to ensure correct structure
+            note_item = {
+                'itemType': 'note',
+                'note': html_content,
+                'collections': [collection_key],
+                'tags': [{'tag': tag} for tag in tags] if tags else []
+            }
 
-            if tags:
-                note_template['tags'] = [{'tag': tag} for tag in tags]
-
-            result = self.zot.create_items([note_template])
+            result = self.zot.create_items([note_item])
 
             if result['successful']:
                 note_key = result['successful']['0']['key']
