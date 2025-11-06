@@ -10,7 +10,7 @@ and generates targeted summaries with key quotes and statistics.
 import os
 import io
 import time
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List, Tuple, Any
 from datetime import datetime
 import fitz  # PyMuPDF
 import trafilatura
