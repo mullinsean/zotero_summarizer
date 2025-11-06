@@ -2601,6 +2601,20 @@ Examples:
         help='[Query] Use Sonnet for detailed summaries (higher quality, higher cost). Default: Haiku (cost-efficient)'
     )
 
+    # Performance tuning arguments
+    parser.add_argument(
+        '--max-workers',
+        type=int,
+        default=10,
+        help='Number of concurrent threads for parallel LLM calls (default: 10). Increase for faster processing, decrease if hitting rate limits.'
+    )
+    parser.add_argument(
+        '--rate-limit-delay',
+        type=float,
+        default=0.1,
+        help='Delay in seconds between parallel request submissions (default: 0.1). Increase if hitting Anthropic rate limits.'
+    )
+
     args = parser.parse_args()
 
     # Determine mode (default to query for backward compatibility)
@@ -2638,6 +2652,8 @@ Examples:
         max_sources=args.max_sources,
         use_sonnet=args.use_sonnet,
         force_rebuild=args.force,
+        max_workers=args.max_workers,
+        rate_limit_delay=args.rate_limit_delay,
         verbose=args.verbose
     )
 
