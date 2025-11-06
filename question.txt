@@ -1,6 +1,0 @@
-III. The Global Landscape: International Approaches to AI Sovereignty
-A comparative analysis of how other nations are navigating the challenges of building and securing their digital infrastructure.
-A. United States: An "America First" AI strategy focused on achieving domestic dominance. This approach prioritizes deregulation to accelerate private sector innovation while implementing protectionist trade measures, including tariffs and export controls on AI-related hardware. It also involves aggressive use of executive orders and federal procurement to favor American companies and secure domestic supply chains.
-B. China: A state-directed pursuit of a fully indigenous technology stack, mandated data localization, and the development of robust state capacity in cyber-espionage and regulatory enforcement.
-C. Europe: A focus on creating a harmonized regulatory environment (e.g., GDPR, AI Act), fostering data sovereignty through initiatives like GAIA-X/Eurostack, and making public investments in compute capacity.
-D. Other Middle Powers (UK, Japan, South Korea, etc.): Differentiated strategies focused on targeted investments in national compute resources, aggressive talent attraction and retention policies, and active participation in shaping global standards.
