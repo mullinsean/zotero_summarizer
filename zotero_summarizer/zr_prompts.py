@@ -12,7 +12,8 @@ def general_summary_prompt(
     title: str,
     authors: str,
     date: str,
-    content: str
+    content: str,
+    truncated: bool = False
 ) -> str:
     """
     Prompt for generating general summaries with tags and document type.
@@ -26,10 +27,13 @@ def general_summary_prompt(
         authors: Source authors
         date: Publication date
         content: Source content (truncated to ~50K chars)
+        truncated: If True, content has been truncated
 
     Returns:
         Formatted prompt string
     """
+    truncation_note = "\n\n**NOTE: This source has been truncated to 50,000 characters. You are analyzing a partial view of the full content.**" if truncated else ""
+
     return f"""You are analyzing sources for a research project.
 
 Project Overview:
@@ -43,7 +47,7 @@ Source Metadata:
 - Authors: {authors}
 - Date: {date}
 
-Source Content:
+Source Content:{truncation_note}
 {content}
 
 Tasks:
@@ -115,7 +119,8 @@ def targeted_summary_prompt(
     research_brief: str,
     title: str,
     content_type: str,
-    content: str
+    content: str,
+    truncated: bool = False
 ) -> str:
     """
     Prompt for generating detailed targeted summaries.
@@ -128,17 +133,20 @@ def targeted_summary_prompt(
         title: Source title
         content_type: Type of content (HTML, PDF, etc.)
         content: Full source content (truncated to ~100K chars)
+        truncated: If True, content has been truncated
 
     Returns:
         Formatted prompt string
     """
+    truncation_note = "\n\n**NOTE: This source has been truncated to 100,000 characters. You are analyzing a partial view of the full content.**" if truncated else ""
+
     return f"""Research Brief:
 {research_brief}
 
 Source Title: {title}
 Source Type: {content_type}
 
-Source Content:
+Source Content:{truncation_note}
 {content}
 
 Please provide:

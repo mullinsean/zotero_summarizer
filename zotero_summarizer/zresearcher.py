@@ -783,13 +783,15 @@ Project: {self.project_name}
         """
         try:
             item_title = item['data'].get('title', 'Untitled')
+            truncated = len(content) > 100000
 
             # Use configured model (Haiku by default, Sonnet for production)
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000]  # Limit to ~100K chars
+                content=content[:100000],  # Limit to ~100K chars
+                truncated=truncated
             )
 
             response = self.anthropic_client.messages.create(
@@ -937,13 +939,17 @@ Project: {self.project_name}
         batch_requests = []
 
         for item_data in items_to_process:
+            content = item_data['content']
+            truncated = len(content) > 50000
+
             prompt = zr_prompts.general_summary_prompt(
                 project_overview=self.project_overview,
                 tags_list=tags_list,
                 title=item_data['metadata'].get('title', 'Untitled'),
                 authors=item_data['metadata'].get('authors', 'Unknown'),
                 date=item_data['metadata'].get('date', 'Unknown'),
-                content=item_data['content'][:50000]
+                content=content[:50000],
+                truncated=truncated
             )
 
             batch_requests.append({
@@ -2059,12 +2065,14 @@ Edit this note before running --query-summary"""
             item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
+            truncated = len(content) > 100000
 
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000]
+                content=content[:100000],
+                truncated=truncated
             )
 
             batch_requests.append({
@@ -2368,12 +2376,14 @@ Edit this note before running --query-summary"""
             item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
+            truncated = len(content) > 100000
 
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
                 title=item_title,
                 content_type=content_type,
-                content=content[:100000]
+                content=content[:100000],
+                truncated=truncated
             )
 
             batch_requests.append({
