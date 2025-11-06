@@ -763,7 +763,7 @@ Project: {project_name}
         # Detect mode: if project_overview and tags are empty, try loading from Zotero
         if not self.project_overview and not self.tags:
             print(f"\n📋 No project overview or tags provided via files")
-            print(f"   Attempting to load from <<ZResearcher>> subcollection...\n")
+            print(f"   Attempting to load from 【ZResearcher】 subcollection...\n")
 
             try:
                 self.project_overview = self.load_project_overview_from_zotero(collection_key)
@@ -1370,7 +1370,7 @@ Project: {project_name}
 
     def load_project_overview_from_zotero(self, collection_key: str) -> str:
         """
-        Load project overview from <<ZResearcher>> subcollection note.
+        Load project overview from 【ZResearcher】 subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1382,11 +1382,11 @@ Project: {project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        # Get <<ZResearcher>> subcollection
-        subcollection_key = self.get_subcollection(collection_key, "<<ZResearcher>>")
+        # Get 【ZResearcher】 subcollection
+        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
         if not subcollection_key:
             raise FileNotFoundError(
-                "<<ZResearcher>> subcollection not found. "
+                "【ZResearcher】 subcollection not found. "
                 "Run --init-collection first."
             )
 
@@ -1395,13 +1395,13 @@ Project: {project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '<<Project Overview>>' in title:
+            if '【Project Overview】' in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "<<Project Overview>> note still contains template. "
+                        "【Project Overview】 note still contains template. "
                         "Please edit the note in Zotero before building summaries."
                     )
 
@@ -1411,19 +1411,19 @@ Project: {project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '<<Project Overview>>' in lines[0]:
+                if lines and '【Project Overview】' in lines[0]:
                     content = '\n'.join(lines[1:])
 
                 return content.strip()
 
         raise FileNotFoundError(
-            "<<Project Overview>> note not found in <<ZResearcher>> subcollection. "
+            "【Project Overview】 note not found in 【ZResearcher】 subcollection. "
             "Run --init-collection first."
         )
 
     def load_tags_from_zotero(self, collection_key: str) -> List[str]:
         """
-        Load research tags from <<ZResearcher>> subcollection note.
+        Load research tags from 【ZResearcher】 subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1435,11 +1435,11 @@ Project: {project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder or is empty
         """
-        # Get <<ZResearcher>> subcollection
-        subcollection_key = self.get_subcollection(collection_key, "<<ZResearcher>>")
+        # Get 【ZResearcher】 subcollection
+        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
         if not subcollection_key:
             raise FileNotFoundError(
-                "<<ZResearcher>> subcollection not found. "
+                "【ZResearcher】 subcollection not found. "
                 "Run --init-collection first."
             )
 
@@ -1448,13 +1448,13 @@ Project: {project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '<<Research Tags>>' in title:
+            if '【Research Tags】' in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "<<Research Tags>> note still contains template. "
+                        "【Research Tags】 note still contains template. "
                         "Please edit the note in Zotero before building summaries."
                     )
 
@@ -1464,25 +1464,25 @@ Project: {project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '<<Research Tags>>' in lines[0]:
+                if lines and '【Research Tags】' in lines[0]:
                     lines = lines[1:]
 
                 # Parse tags (one per line), filter empty lines
                 tags = [line.strip() for line in lines if line.strip() and not line.startswith('Example')]
 
                 if not tags:
-                    raise ValueError("<<Research Tags>> note is empty. Please add tags.")
+                    raise ValueError("【Research Tags】 note is empty. Please add tags.")
 
                 return tags
 
         raise FileNotFoundError(
-            "<<Research Tags>> note not found in <<ZResearcher>> subcollection. "
+            "【Research Tags】 note not found in 【ZResearcher】 subcollection. "
             "Run --init-collection first."
         )
 
     def load_research_brief_from_zotero(self, collection_key: str) -> str:
         """
-        Load research brief from <<ZResearcher>> subcollection note.
+        Load research brief from 【ZResearcher】 subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1494,11 +1494,11 @@ Project: {project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        # Get <<ZResearcher>> subcollection
-        subcollection_key = self.get_subcollection(collection_key, "<<ZResearcher>>")
+        # Get 【ZResearcher】 subcollection
+        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
         if not subcollection_key:
             raise FileNotFoundError(
-                "<<ZResearcher>> subcollection not found. "
+                "【ZResearcher】 subcollection not found. "
                 "Run --init-collection first."
             )
 
@@ -1507,13 +1507,13 @@ Project: {project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '<<Research Brief>>' in title:
+            if '【Research Brief】' in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "<<Research Brief>> note still contains template. "
+                        "【Research Brief】 note still contains template. "
                         "Please edit the note in Zotero before running query."
                     )
 
@@ -1523,22 +1523,22 @@ Project: {project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '<<Research Brief>>' in lines[0]:
+                if lines and '【Research Brief】' in lines[0]:
                     content = '\n'.join(lines[1:])
 
                 return content.strip()
 
         raise FileNotFoundError(
-            "<<Research Brief>> note not found in <<ZResearcher>> subcollection. "
-            "Run --init-collection first, then edit the <<Research Brief>> note."
+            "【Research Brief】 note not found in 【ZResearcher】 subcollection. "
+            "Run --init-collection first, then edit the 【Research Brief】 note."
         )
 
     def init_collection(self, collection_key: str, force: bool = False) -> bool:
         """
         Initialize a collection for use with ZoteroResearcher.
 
-        Creates a "<<ZResearcher>>" subcollection and populates it with
-        template notes for <<Project Overview>>, <<Research Tags>>, and <<Research Brief>>.
+        Creates a "【ZResearcher】" subcollection and populates it with
+        template notes for 【Project Overview】, 【Research Tags】, and 【Research Brief】.
 
         Args:
             collection_key: The Zotero collection key to initialize
@@ -1551,11 +1551,11 @@ Project: {project_name}
         print(f"Initializing Collection for ZoteroResearcher")
         print(f"{'='*80}\n")
 
-        # Check if <<ZResearcher>> subcollection already exists
-        existing_key = self.get_subcollection(collection_key, "<<ZResearcher>>")
+        # Check if 【ZResearcher】 subcollection already exists
+        existing_key = self.get_subcollection(collection_key, "【ZResearcher】")
 
         if existing_key and not force:
-            print(f"⚠️  Collection already initialized with <<ZResearcher>> subcollection")
+            print(f"⚠️  Collection already initialized with 【ZResearcher】 subcollection")
             print(f"   Subcollection Key: {existing_key}")
             print(f"\n   Options:")
             print(f"   1. Use existing configuration (edit notes in Zotero)")
@@ -1564,8 +1564,8 @@ Project: {project_name}
             return False
 
         # Create or get subcollection
-        print(f"Creating <<ZResearcher>> subcollection...")
-        subcollection_key = self.create_subcollection(collection_key, "<<ZResearcher>>")
+        print(f"Creating 【ZResearcher】 subcollection...")
+        subcollection_key = self.create_subcollection(collection_key, "【ZResearcher】")
 
         if not subcollection_key:
             print(f"❌ Failed to create subcollection")
@@ -1596,14 +1596,14 @@ Edit this note before running --build-summaries"""
         overview_key = self.create_standalone_note(
             subcollection_key,
             project_overview_content,
-            "<<Project Overview>>",
+            "【Project Overview】",
             convert_markdown=True
         )
 
         if overview_key:
-            print(f"   ✅ Created: <<Project Overview>>")
+            print(f"   ✅ Created: 【Project Overview】")
         else:
-            print(f"   ❌ Failed to create: <<Project Overview>>")
+            print(f"   ❌ Failed to create: 【Project Overview】")
 
         # Template 2: Research Tags
         research_tags_content = """[TODO: Replace this template with your tag list]
@@ -1628,14 +1628,14 @@ Edit this note before running --build-summaries"""
         tags_key = self.create_standalone_note(
             subcollection_key,
             research_tags_content,
-            "<<Research Tags>>",
+            "【Research Tags】",
             convert_markdown=True
         )
 
         if tags_key:
-            print(f"   ✅ Created: <<Research Tags>>")
+            print(f"   ✅ Created: 【Research Tags】")
         else:
-            print(f"   ❌ Failed to create: <<Research Tags>>")
+            print(f"   ❌ Failed to create: 【Research Tags】")
 
         # Template 3: Research Brief
         research_brief_content = """[TODO: Replace this template with your specific research question]
@@ -1665,29 +1665,29 @@ Edit this note before running --query-summary"""
         brief_key = self.create_standalone_note(
             subcollection_key,
             research_brief_content,
-            "<<Research Brief>>",
+            "【Research Brief】",
             convert_markdown=True
         )
 
         if brief_key:
-            print(f"   ✅ Created: <<Research Brief>>")
+            print(f"   ✅ Created: 【Research Brief】")
         else:
-            print(f"   ❌ Failed to create: <<Research Brief>>")
+            print(f"   ❌ Failed to create: 【Research Brief】")
 
         # Final output
         print(f"\n{'='*80}")
         print(f"✅ Collection Initialized Successfully")
         print(f"{'='*80}\n")
-        print(f"<<ZResearcher>> subcollection created: {subcollection_key}\n")
+        print(f"【ZResearcher】 subcollection created: {subcollection_key}\n")
         print(f"Configuration templates created:")
-        print(f"   - <<Project Overview>> (edit before building summaries)")
-        print(f"   - <<Research Tags>> (edit before building summaries)")
-        print(f"   - <<Research Brief>> (edit before running queries)\n")
+        print(f"   - 【Project Overview】 (edit before building summaries)")
+        print(f"   - 【Research Tags】 (edit before building summaries)")
+        print(f"   - 【Research Brief】 (edit before running queries)\n")
         print(f"Next steps:")
-        print(f"   1. Open the '<<ZResearcher>>' subcollection in Zotero")
-        print(f"   2. Edit '<<Project Overview>>' with your project description")
-        print(f"   3. Edit '<<Research Tags>>' with your tag list")
-        print(f"   4. Edit '<<Research Brief>>' with your research question")
+        print(f"   1. Open the '【ZResearcher】' subcollection in Zotero")
+        print(f"   2. Edit '【Project Overview】' with your project description")
+        print(f"   3. Edit '【Research Tags】' with your tag list")
+        print(f"   4. Edit '【Research Brief】' with your research question")
         print(f"   5. Run: python zresearcher.py --build-summaries --collection {collection_key}")
         print(f"{'='*80}\n")
 
@@ -1987,7 +1987,7 @@ Edit this note before running --query-summary"""
         """
         Phase 2 (Zotero-native): Query sources based on research brief from Zotero notes.
 
-        Loads research brief from <<ZResearcher>> subcollection, runs query,
+        Loads research brief from 【ZResearcher】 subcollection, runs query,
         and stores report as a Zotero note (or HTML file if >1MB).
 
         Args:
@@ -2003,7 +2003,7 @@ Edit this note before running --query-summary"""
         print(f"{'='*80}\n")
 
         # Load research brief from Zotero
-        print(f"Loading research brief from <<ZResearcher>> subcollection...")
+        print(f"Loading research brief from 【ZResearcher】 subcollection...")
         try:
             self.research_brief = self.load_research_brief_from_zotero(collection_key)
             print(f"✅ Loaded research brief ({len(self.research_brief)} characters)")
@@ -2013,7 +2013,7 @@ Edit this note before running --query-summary"""
             print(f"❌ Error loading research brief from Zotero: {e}")
             print(f"\nOptions:")
             print(f"   1. Run --init-collection first to create configuration notes")
-            print(f"   2. Edit the <<Research Brief>> note in <<ZResearcher>> subcollection")
+            print(f"   2. Edit the 【Research Brief】 note in 【ZResearcher】 subcollection")
             print(f"   3. Use file-based mode: --query --collection KEY --brief FILE\n")
             return None
 
@@ -2285,10 +2285,10 @@ Edit this note before running --query-summary"""
 
         print(f"  Report size: {html_size_mb:.2f} MB")
 
-        # Get <<ZResearcher>> subcollection
-        subcollection_key = self.get_subcollection(collection_key, "<<ZResearcher>>")
+        # Get 【ZResearcher】 subcollection
+        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
         if not subcollection_key:
-            print(f"❌ <<ZResearcher>> subcollection not found")
+            print(f"❌ 【ZResearcher】 subcollection not found")
             print(f"   Run --init-collection first")
             return None
 
@@ -2329,7 +2329,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             )
 
             if note_key:
-                print(f"  ✅ Stub note created in <<ZResearcher>> subcollection")
+                print(f"  ✅ Stub note created in 【ZResearcher】 subcollection")
             else:
                 print(f"  ⚠️  Failed to create stub note")
 
@@ -2349,7 +2349,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
 
         # If report <1MB, create full note in Zotero
         else:
-            print(f"  Creating note in <<ZResearcher>> subcollection...")
+            print(f"  Creating note in 【ZResearcher】 subcollection...")
 
             # Extract title from research brief (first line or first 100 chars)
             brief_lines = self.research_brief.strip().split('\n')
@@ -2368,7 +2368,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             )
 
             if note_key:
-                print(f"  ✅ Report note created in <<ZResearcher>> subcollection")
+                print(f"  ✅ Report note created in 【ZResearcher】 subcollection")
             else:
                 print(f"  ❌ Failed to create report note")
                 return None
@@ -2382,7 +2382,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             print(f"Missing summaries: {stats['missing_summaries']}")
             print(f"Relevant: {stats['relevant']}")
             print(f"Processing time: {stats['time']}")
-            print(f"Report: Stored as note in <<ZResearcher>> subcollection")
+            print(f"Report: Stored as note in 【ZResearcher】 subcollection")
             print(f"{'='*80}\n")
 
             return note_key
@@ -2740,7 +2740,7 @@ Examples:
     mode_group.add_argument(
         '--init-collection',
         action='store_true',
-        help='Initialize collection with <<ZResearcher>> subcollection and templates'
+        help='Initialize collection with 【ZResearcher】 subcollection and templates'
     )
     mode_group.add_argument(
         '--build-summaries',
@@ -2933,7 +2933,7 @@ Examples:
             if result.endswith('.html'):
                 print(f"Note: Large report saved as file (with stub note in Zotero)")
             else:
-                print(f"Note: Report saved as note in <<ZResearcher>> subcollection")
+                print(f"Note: Report saved as note in 【ZResearcher】 subcollection")
         return
 
     # Handle --query mode (file-based)
