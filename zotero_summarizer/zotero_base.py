@@ -364,12 +364,13 @@ class ZoteroBaseProcessor:
             if existing_key:
                 return existing_key
 
-            # Create new subcollection
-            template = self.zot.collection_template()
-            template['name'] = subcollection_name
-            template['parentCollection'] = parent_collection_key
+            # Create new subcollection manually (no template method for collections)
+            collection_data = {
+                'name': subcollection_name,
+                'parentCollection': parent_collection_key
+            }
 
-            result = self.zot.create_collections([template])
+            result = self.zot.create_collections([collection_data])
 
             if result['successful']:
                 return result['successful']['0']['key']
