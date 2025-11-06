@@ -399,7 +399,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         Returns:
             True if a general summary exists
         """
-        return self.has_note_with_prefix(item_key, 'ZResearcher Summary:')
+        return self.has_note_with_prefix(item_key, '【ZResearcher Summary】:')
 
     def format_general_summary_note(
         self,
@@ -426,7 +426,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         # Format tags as comma-separated list
         tags_str = ', '.join(tags) if tags else 'None'
 
-        note_content = f"""ZResearcher Summary
+        note_content = f"""【ZResearcher Summary】
 
 ## Metadata
 - **Title**: {metadata.get('title', 'Untitled')}
@@ -598,7 +598,7 @@ Project: {project_name}
                     document_type
                 )
 
-                note_title = f"ZResearcher Summary: {metadata.get('title', 'Untitled')}"
+                note_title = f"【ZResearcher Summary】: {metadata.get('title', 'Untitled')}"
                 if self.create_note(item_key, note_content, note_title, convert_markdown=True):
                     return {
                         'summary': summary,
@@ -826,12 +826,14 @@ Project: {project_name}
             item_title = item['data'].get('title', 'Untitled')
 
             # Check if general summary already exists
-            if self.has_general_summary(item_key) and not self.force_rebuild:
+            has_existing_summary = self.has_general_summary(item_key)
+
+            if has_existing_summary and not self.force_rebuild:
                 print(f"[{idx}/{len(items)}] ✓ {item_title} - already has summary, skipping")
                 skipped += 1
                 continue
 
-            if self.force_rebuild and self.has_general_summary(item_key):
+            if self.force_rebuild and has_existing_summary:
                 print(f"[{idx}/{len(items)}] 🔄 {item_title} - force rebuild enabled")
             else:
                 print(f"[{idx}/{len(items)}] 📚 {item_title}")
@@ -853,7 +855,8 @@ Project: {project_name}
                 'metadata': metadata,
                 'content': content,
                 'content_type': content_type,
-                'index': idx
+                'index': idx,
+                'has_existing_summary': has_existing_summary
             })
 
         if not items_to_process:
@@ -935,6 +938,12 @@ Project: {project_name}
             summary_data = batch_results.get(item_key)
 
             if summary_data and summary_data.get('summary'):
+                # If force rebuild and item had existing summary, delete it first
+                if self.force_rebuild and item_data.get('has_existing_summary'):
+                    if self.verbose:
+                        print(f"  🗑️  Deleting existing summary...")
+                    self.delete_note_with_prefix(item_key, '【ZResearcher Summary】:')
+
                 # Format and create note
                 note_content = self.format_general_summary_note(
                     metadata=metadata,
@@ -946,7 +955,7 @@ Project: {project_name}
                 success = self.create_note(
                     parent_key=item_key,
                     content=note_content,
-                    title='ZResearcher Summary:',
+                    title='【ZResearcher Summary】:',
                     convert_markdown=True
                 )
 
@@ -1751,7 +1760,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, 'ZResearcher Summary:')
+            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】:')
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
@@ -2064,7 +2073,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, 'ZResearcher Summary:')
+            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】:')
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
