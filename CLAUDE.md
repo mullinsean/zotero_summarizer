@@ -59,10 +59,10 @@ uv run python summarize_sources.py --verbose
 # All configuration and reports stored in Zotero
 
 # Step 0: List collections
-uv run python researcher.py --list-collections
+uv run python zresearcher.py --list-collections
 
 # Step 1: Initialize collection (creates template notes in Zotero)
-uv run python researcher.py --init-collection --collection COLLECTION_KEY
+uv run python zresearcher.py --init-collection --collection COLLECTION_KEY
 
 # Step 2: Edit the three template notes in Zotero:
 #   - Project Overview (describe your research project)
@@ -70,28 +70,28 @@ uv run python researcher.py --init-collection --collection COLLECTION_KEY
 #   - Research Brief (your research question)
 
 # Step 3: Build general summaries (loads config from Zotero)
-uv run python researcher.py --build-summaries --collection COLLECTION_KEY
-uv run python researcher.py --build-summaries --collection COLLECTION_KEY --force  # Rebuild existing
+uv run python zresearcher.py --build-summaries --collection COLLECTION_KEY
+uv run python zresearcher.py --build-summaries --collection COLLECTION_KEY --force  # Rebuild existing
 
 # Step 4: Run query (loads brief from Zotero, stores report as note)
-uv run python researcher.py --query-summary --collection COLLECTION_KEY
-uv run python researcher.py --query-summary --collection COLLECTION_KEY --threshold 7
-uv run python researcher.py --query-summary --collection COLLECTION_KEY --use-sonnet  # High quality mode
+uv run python zresearcher.py --query-summary --collection COLLECTION_KEY
+uv run python zresearcher.py --query-summary --collection COLLECTION_KEY --threshold 7
+uv run python zresearcher.py --query-summary --collection COLLECTION_KEY --use-sonnet  # High quality mode
 
 # Research Assistant - File-based workflow (for debugging)
 # Configuration from files, reports as HTML files
 
 # Phase 1: Build general summaries (provide files)
-uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
+uv run python zresearcher.py --build-summaries --collection COLLECTION_KEY \
     --project-overview project_overview.txt --tags tags.txt
-uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
+uv run python zresearcher.py --build-summaries --collection COLLECTION_KEY \
     --project-overview project_overview.txt --tags tags.txt --force  # Rebuild existing
 
 # Phase 2: Query with research briefs (provide brief file, output HTML)
-uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt
-uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
-uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
-uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet
+uv run python zresearcher.py --query --collection COLLECTION_KEY --brief research_brief.txt
+uv run python zresearcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
+uv run python zresearcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
+uv run python zresearcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet
 ```
 
 ### Linting & Code Quality
@@ -150,7 +150,7 @@ The `LLMExtractor` class provides AI-powered content polishing:
 
 Diagnostic tool for troubleshooting Zotero connections and library access. Provides CLI for testing API connectivity and group membership.
 
-### Research Module: `zotero_summarizer/researcher.py`
+### Research Module: `zotero_summarizer/zresearcher.py`
 
 The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections using a **two-phase workflow** with **dual-mode support**:
 
@@ -413,7 +413,7 @@ The `ZoteroBaseProcessor` class provides shared functionality for all processors
 
 **Used by:**
 - `ZoteroSourceSummarizer` (summarize_sources.py)
-- `ZoteroResearcher` (researcher.py)
+- `ZoteroResearcher` (zresearcher.py)
 
 ### Data Flow
 

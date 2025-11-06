@@ -28,7 +28,7 @@ Refactor the research assistant to use Zotero's native collection and note syste
 
 **Command:**
 ```bash
-python researcher.py --init-collection --collection COLLECTION_KEY
+python zresearcher.py --init-collection --collection COLLECTION_KEY
 ```
 
 **Process:**
@@ -137,7 +137,7 @@ python researcher.py --init-collection --collection COLLECTION_KEY
       1. Open the "ZoteroResearcher" subcollection in Zotero
       2. Edit "Project Overview" with your project description
       3. Edit "Research Tags" with your tag list
-      4. Run: python researcher.py --build-summaries --collection KEY
+      4. Run: python zresearcher.py --build-summaries --collection KEY
    ```
 
 4. **Idempotency:**
@@ -158,7 +158,7 @@ python researcher.py --init-collection --collection COLLECTION_KEY
 
 **Command:**
 ```bash
-python researcher.py --build-summaries --collection COLLECTION_KEY [--force]
+python zresearcher.py --build-summaries --collection COLLECTION_KEY [--force]
 ```
 
 **Process:**
@@ -221,7 +221,7 @@ python researcher.py --build-summaries --collection COLLECTION_KEY [--force]
 
 **Command:**
 ```bash
-python researcher.py --query-summary --collection COLLECTION_KEY \
+python zresearcher.py --query-summary --collection COLLECTION_KEY \
     [--threshold 6] [--use-sonnet]
 ```
 
@@ -402,20 +402,20 @@ python researcher.py --query-summary --collection COLLECTION_KEY \
 1. **Legacy Mode (file-based):**
    ```bash
    # Still supported for existing users
-   python researcher.py --build-summaries --collection KEY \
+   python zresearcher.py --build-summaries --collection KEY \
        --project-overview overview.txt --tags tags.txt
 
-   python researcher.py --query --collection KEY --brief brief.txt
+   python zresearcher.py --query --collection KEY --brief brief.txt
    ```
 
 2. **Zotero-Native Mode (new):**
    ```bash
    # New workflow, stores everything in Zotero
-   python researcher.py --init-collection --collection KEY
+   python zresearcher.py --init-collection --collection KEY
    # Edit notes in Zotero UI
-   python researcher.py --build-summaries --collection KEY
+   python zresearcher.py --build-summaries --collection KEY
    # Create research brief note in Zotero UI
-   python researcher.py --query-summary --collection KEY
+   python zresearcher.py --query-summary --collection KEY
    ```
 
 **Detection Logic:**
@@ -692,12 +692,12 @@ def create_research_report_note(
 
 **Initialize Collection:**
 ```bash
-python researcher.py --init-collection --collection COLLECTION_KEY [--force]
+python zresearcher.py --init-collection --collection COLLECTION_KEY [--force]
 ```
 
 **Build Summaries (Zotero-native mode):**
 ```bash
-python researcher.py --build-summaries --collection COLLECTION_KEY [--force]
+python zresearcher.py --build-summaries --collection COLLECTION_KEY [--force]
 ```
 - Looks for ZoteroResearcher subcollection
 - Loads project overview and tags from notes
@@ -705,7 +705,7 @@ python researcher.py --build-summaries --collection COLLECTION_KEY [--force]
 
 **Query Summary (Zotero-native mode):**
 ```bash
-python researcher.py --query-summary --collection COLLECTION_KEY \
+python zresearcher.py --query-summary --collection COLLECTION_KEY \
     [--brief-title "Partial Title"] \
     [--threshold 6] \
     [--use-sonnet]
@@ -718,7 +718,7 @@ python researcher.py --query-summary --collection COLLECTION_KEY \
 ### Updated Help Text
 
 ```
-usage: researcher.py [-h]
+usage: zresearcher.py [-h]
                      [--list-collections]
                      [--init-collection]
                      [--build-summaries]
@@ -763,16 +763,16 @@ Options:
 
 Examples:
   # Zotero-native workflow (recommended)
-  python researcher.py --init-collection --collection ABC123
+  python zresearcher.py --init-collection --collection ABC123
   # Edit notes in Zotero UI: Project Overview, Research Tags
-  python researcher.py --build-summaries --collection ABC123
+  python zresearcher.py --build-summaries --collection ABC123
   # Create research brief note in Zotero UI
-  python researcher.py --query-summary --collection ABC123
+  python zresearcher.py --query-summary --collection ABC123
 
   # File-based workflow (legacy)
-  python researcher.py --build-summaries --collection ABC123 \
+  python zresearcher.py --build-summaries --collection ABC123 \
       --project-overview overview.txt --tags tags.txt
-  python researcher.py --query --collection ABC123 --brief brief.txt
+  python zresearcher.py --query --collection ABC123 --brief brief.txt
 ```
 
 ## Implementation Order

@@ -146,7 +146,7 @@ Consider the tags, metadata, and summary content.
 
 **Build summaries**:
 ```bash
-python researcher.py --build-summaries \
+python zresearcher.py --build-summaries \
     --collection COLLECTION_KEY \
     --project-overview project.txt \
     --tags tags.txt \
@@ -155,7 +155,7 @@ python researcher.py --build-summaries \
 
 **Query summaries** (existing, modified):
 ```bash
-python researcher.py --query \
+python zresearcher.py --query \
     --collection COLLECTION_KEY \
     --brief research_brief.txt \
     [--threshold 6] \
@@ -251,18 +251,18 @@ def parse_general_summary_note(self, note_content):
 
 **Old workflow** (single research brief, creates summaries on-demand):
 ```bash
-python researcher.py --brief research_brief.txt --collection KEY
+python zresearcher.py --brief research_brief.txt --collection KEY
 ```
 
 **New workflow** (two-phase):
 ```bash
 # Phase 1: Build summaries once
-python researcher.py --build-summaries --collection KEY \
+python zresearcher.py --build-summaries --collection KEY \
     --project-overview overview.txt --tags tags.txt
 
 # Phase 2: Query multiple times
-python researcher.py --query --brief question1.txt --collection KEY
-python researcher.py --query --brief question2.txt --collection KEY
+python zresearcher.py --query --brief question1.txt --collection KEY
+python zresearcher.py --query --brief question2.txt --collection KEY
 ```
 
 **Decision**: Keep both workflows
@@ -300,7 +300,7 @@ See:
 
 - `CLAUDE.md` - Update command examples and workflow
 - `README.md` - Update usage instructions
-- `researcher.py` - Update docstrings and help text
+- `zresearcher.py` - Update docstrings and help text
 
 ## Migration Path
 

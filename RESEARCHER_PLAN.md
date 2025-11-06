@@ -9,7 +9,7 @@ Add a sophisticated research assistant feature that analyzes a Zotero collection
 ## User Workflow
 
 1. User creates a research brief file (e.g., `research_brief.txt`) describing their paper topic or research question
-2. User runs: `uv run python researcher.py --collection COLLECTION_KEY --brief research_brief.txt`
+2. User runs: `uv run python zresearcher.py --collection COLLECTION_KEY --brief research_brief.txt`
 3. System processes sources in the collection (up to configurable limit)
 4. System outputs a compiled HTML research report with:
    - Linked Table of Contents with relevance scores (clickable)
@@ -21,7 +21,7 @@ Add a sophisticated research assistant feature that analyzes a Zotero collection
 
 ## Architecture
 
-### New Module: `zotero_summarizer/researcher.py`
+### New Module: `zotero_summarizer/zresearcher.py`
 
 **Class: `ZoteroResearcher`**
 
@@ -180,7 +180,7 @@ Generate final HTML document with linked table of contents:
 
 ### Command-Line Arguments
 ```bash
-uv run python researcher.py \
+uv run python zresearcher.py \
   --collection COLLECTION_KEY \           # Required: Zotero collection to analyze
   --brief research_brief.txt \            # Required: Path to research brief file (plain text)
   --threshold 6 \                         # Optional: Relevance threshold (default: 6)

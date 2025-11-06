@@ -1,7 +1,7 @@
 """
 ZoteroResearcher Prompt Templates
 
-This module contains all major LLM prompts used by the researcher.py module.
+This module contains all major LLM prompts used by the zresearcher.py module.
 Edit these templates directly to customize the research assistant behavior.
 """
 
