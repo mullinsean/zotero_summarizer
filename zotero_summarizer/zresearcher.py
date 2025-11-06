@@ -167,10 +167,10 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         return f"【Research Brief: {self.project_name}】"
 
     def _get_summary_note_prefix(self) -> str:
-        """Get project-specific summary note prefix."""
+        """Get project-specific summary note prefix (used as note title/heading)."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
-        return f"【ZResearcher Summary: {self.project_name}】:"
+        return f"【ZResearcher Summary: {self.project_name}】"
 
     def load_research_brief(self, brief_file: str) -> str:
         """
@@ -494,12 +494,8 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         # Format tags as comma-separated list
         tags_str = ', '.join(tags) if tags else 'None'
 
-        # Get project-specific summary title (without the colon, as that's added as prefix)
-        summary_title = f"【ZResearcher Summary: {self.project_name}】"
-
-        note_content = f"""{summary_title}
-
-## Metadata
+        # Note: The title will be added by create_note() as an H1 heading
+        note_content = f"""## Metadata
 - **Title**: {metadata.get('title', 'Untitled')}
 - **Authors**: {metadata.get('authors', 'Unknown')}
 - **Date**: {metadata.get('date', 'Unknown')}
@@ -834,7 +830,7 @@ Project: {self.project_name}
         # Detect mode: if project_overview and tags are empty, try loading from Zotero
         if not self.project_overview and not self.tags:
             print(f"\n📋 No project overview or tags provided via files")
-            print(f"   Attempting to load from 【ZResearcher】 subcollection...\n")
+            print(f"   Attempting to load from {self._get_subcollection_name()} subcollection...\n")
 
             try:
                 self.project_overview = self.load_project_overview_from_zotero(collection_key)
@@ -1013,7 +1009,7 @@ Project: {self.project_name}
                 if self.force_rebuild and item_data.get('has_existing_summary'):
                     if self.verbose:
                         print(f"  🗑️  Deleting existing summary...")
-                    self.delete_note_with_prefix(item_key, '【ZResearcher Summary】')
+                    self.delete_note_with_prefix(item_key, self._get_summary_note_prefix())
 
                 # Format and create note
                 note_content = self.format_general_summary_note(
@@ -1026,7 +1022,7 @@ Project: {self.project_name}
                 success = self.create_note(
                     parent_key=item_key,
                     content=note_content,
-                    title='【ZResearcher Summary】',
+                    title=self._get_summary_note_prefix(),
                     convert_markdown=True
                 )
 
@@ -1784,6 +1780,75 @@ Edit this note before running --query-summary"""
 
         return True
 
+    def list_projects(self, collection_key: str):
+        """
+        List all ZResearcher projects in a collection.
+
+        Args:
+            collection_key: Collection key to scan for projects
+        """
+        print(f"\n{'='*80}")
+        print(f"ZResearcher Projects in Collection")
+        print(f"{'='*80}\n")
+        print(f"Scanning for project subcollections...\n")
+
+        # Get all subcollections
+        try:
+            subcollections = self.zot.collections_sub(collection_key)
+        except Exception as e:
+            print(f"❌ Error fetching subcollections: {e}")
+            return
+
+        # Filter for ZResearcher projects
+        projects = []
+        for subcoll in subcollections:
+            name = subcoll['data'].get('name', '')
+            # Match pattern: 【ZResearcher: PROJECT_NAME】
+            if name.startswith('【ZResearcher:') and name.endswith('】'):
+                # Extract project name
+                project_name = name[len('【ZResearcher:'):-1].strip()
+                projects.append({
+                    'name': project_name,
+                    'subcollection_name': name,
+                    'key': subcoll['key'],
+                    'num_items': subcoll['meta'].get('numItems', 0)
+                })
+
+        if not projects:
+            print("No ZResearcher projects found in this collection.")
+            print("\nTo create a project, run:")
+            print(f"  python zresearcher.py --init-collection --collection {collection_key} --project \"PROJECT_NAME\"\n")
+            return
+
+        print(f"Found {len(projects)} project(s):\n")
+
+        for idx, project in enumerate(projects, 1):
+            print(f"{idx}. {project['name']}")
+            print(f"   Subcollection: {project['subcollection_name']}")
+            print(f"   Key: {project['key']}")
+            print(f"   Items: {project['num_items']}")
+
+            # Check for sources with summaries
+            try:
+                items = self.get_collection_items(collection_key)
+                summaries_count = 0
+                summary_prefix = f"【ZResearcher Summary: {project['name']}】:"
+
+                for item in items:
+                    item_type = item['data'].get('itemType')
+                    if item_type in ['attachment', 'note']:
+                        continue
+                    if self.has_note_with_prefix(item['key'], summary_prefix):
+                        summaries_count += 1
+
+                print(f"   Sources with summaries: {summaries_count}/{len([i for i in items if i['data'].get('itemType') not in ['attachment', 'note']])}")
+            except Exception:
+                print(f"   Sources with summaries: Unable to count")
+
+            print()
+
+        print(f"{'='*80}\n")
+
     def run_query(self, collection_key: str) -> str:
         """
         Phase 2: Query sources based on research brief using pre-built summaries.
@@ -1842,7 +1907,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】')
+            summary_note = self.get_note_with_prefix(item_key, self._get_summary_note_prefix())
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
@@ -2078,7 +2143,7 @@ Edit this note before running --query-summary"""
         """
         Phase 2 (Zotero-native): Query sources based on research brief from Zotero notes.
 
-        Loads research brief from 【ZResearcher】 subcollection, runs query,
+        Loads research brief from project-specific subcollection, runs query,
         and stores report as a Zotero note (or HTML file if >1MB).
 
         Args:
@@ -2094,7 +2159,7 @@ Edit this note before running --query-summary"""
         print(f"{'='*80}\n")
 
         # Load research brief from Zotero
-        print(f"Loading research brief from 【ZResearcher】 subcollection...")
+        print(f"Loading research brief from {self._get_subcollection_name()} subcollection...")
         try:
             self.research_brief = self.load_research_brief_from_zotero(collection_key)
             print(f"✅ Loaded research brief ({len(self.research_brief)} characters)")
@@ -2103,9 +2168,9 @@ Edit this note before running --query-summary"""
         except (FileNotFoundError, ValueError) as e:
             print(f"❌ Error loading research brief from Zotero: {e}")
             print(f"\nOptions:")
-            print(f"   1. Run --init-collection first to create configuration notes")
-            print(f"   2. Edit the 【Research Brief】 note in 【ZResearcher】 subcollection")
-            print(f"   3. Use file-based mode: --query --collection KEY --brief FILE\n")
+            print(f"   1. Run --init-collection --project \"{self.project_name}\" first")
+            print(f"   2. Edit the {self._get_research_brief_note_title()} note in {self._get_subcollection_name()}")
+            print(f"   3. Use file-based mode: --query --collection KEY --project \"{self.project_name}\" --brief FILE\n")
             return None
 
         # Run the query using existing logic
@@ -2155,7 +2220,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】')
+            summary_note = self.get_note_with_prefix(item_key, self._get_summary_note_prefix())
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
@@ -2376,11 +2441,11 @@ Edit this note before running --query-summary"""
 
         print(f"  Report size: {html_size_mb:.2f} MB")
 
-        # Get 【ZResearcher】 subcollection
-        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
         if not subcollection_key:
-            print(f"❌ 【ZResearcher】 subcollection not found")
-            print(f"   Run --init-collection first")
+            print(f"❌ {self._get_subcollection_name()} subcollection not found")
+            print(f"   Run --init-collection --project \"{self.project_name}\" first")
             return None
 
         # If report >1MB, save as file and create stub note
@@ -2420,7 +2485,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             )
 
             if note_key:
-                print(f"  ✅ Stub note created in 【ZResearcher】 subcollection")
+                print(f"  ✅ Stub note created in {self._get_subcollection_name()}")
             else:
                 print(f"  ⚠️  Failed to create stub note")
 
@@ -2440,7 +2505,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
 
         # If report <1MB, create full note in Zotero
         else:
-            print(f"  Creating note in 【ZResearcher】 subcollection...")
+            print(f"  Creating note in {self._get_subcollection_name()}...")
 
             # Extract title from research brief (first line or first 100 chars)
             brief_lines = self.research_brief.strip().split('\n')
@@ -2459,7 +2524,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             )
 
             if note_key:
-                print(f"  ✅ Report note created in 【ZResearcher】 subcollection")
+                print(f"  ✅ Report note created in {self._get_subcollection_name()}")
             else:
                 print(f"  ❌ Failed to create report note")
                 return None
@@ -2473,7 +2538,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             print(f"Missing summaries: {stats['missing_summaries']}")
             print(f"Relevant: {stats['relevant']}")
             print(f"Processing time: {stats['time']}")
-            print(f"Report: Stored as note in 【ZResearcher】 subcollection")
+            print(f"Report: Stored as note in {self._get_subcollection_name()}")
             print(f"{'='*80}\n")
 
             return note_key
@@ -3005,6 +3070,15 @@ Examples:
         researcher.print_collections()
         return
 
+    # Handle --list-projects flag
+    if args.list_projects:
+        if not collection_key:
+            print("Error: --collection required for --list-projects")
+            print("Example: python zresearcher.py --list-projects --collection ABC123")
+            return
+        researcher.list_projects(collection_key)
+        return
+
     # Handle --init-collection flag
     if args.init_collection:
         if not collection_key:
@@ -3060,7 +3134,7 @@ Examples:
             if result.endswith('.html'):
                 print(f"Note: Large report saved as file (with stub note in Zotero)")
             else:
-                print(f"Note: Report saved as note in 【ZResearcher】 subcollection")
+                print(f"Note: Report saved as note in project subcollection")
         return
 
     # Handle --query mode (file-based)
