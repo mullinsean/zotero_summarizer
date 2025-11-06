@@ -1730,9 +1730,11 @@ Edit this note before running --query-summary"""
         print(f"Phase 1: Loading Summaries & Evaluating Relevance")
         print(f"{'='*80}\n")
 
-        sources_with_scores = []
+        # Step 1.1: Load and parse all summaries
+        print(f"Step 1.1: Loading general summaries...")
+
+        items_with_summaries = []
         missing_summaries = 0
-        evaluated = 0
 
         for idx, item in enumerate(items, 1):
             item_type = item['data'].get('itemType')
@@ -1742,25 +1744,22 @@ Edit this note before running --query-summary"""
             item_title = item['data'].get('title', 'Untitled')
             item_key = item['key']
 
-            print(f"\n[{idx}/{len(items)}] 📚 {item_title}")
-
             # Check for general summary
             if not self.has_general_summary(item_key):
-                print(f"  ⚠️  No general summary found, skipping (run --build-summaries first)")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - no summary (run --build-summaries first)")
                 missing_summaries += 1
                 continue
 
             # Parse general summary note
-            print(f"  📖 Loading general summary...")
             summary_note = self.get_note_with_prefix(item_key, 'General Summary:')
             if not summary_note:
-                print(f"  ⚠️  Could not load summary note, skipping")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
                 continue
 
             parsed_summary = self.parse_general_summary_note(summary_note)
             if not parsed_summary:
-                print(f"  ⚠️  Could not parse summary note, skipping")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not parse summary")
                 missing_summaries += 1
                 continue
 
@@ -1771,33 +1770,106 @@ Edit this note before running --query-summary"""
             tags_display = ', '.join(tags[:3]) if tags else 'None'
             if len(tags) > 3:
                 tags_display += f", +{len(tags)-3} more"
-            print(f"  ✅ Loaded: {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
-
-            # Evaluate relevance using metadata and tags
-            print(f"  🎯 Evaluating relevance (Haiku)...")
-            score = self.evaluate_source_relevance(summary, metadata, tags)
-
-            if score is None:
-                print(f"  ⚠️  Could not evaluate relevance, skipping")
-                continue
-
-            print(f"  📊 Relevance Score: {score}/10")
-            evaluated += 1
 
             # Get full content for detailed summary generation later
             content, content_type = self.get_source_content(item)
 
-            sources_with_scores.append({
+            print(f"[{idx}/{len(items)}] ✅ {item_title} - {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
+
+            items_with_summaries.append({
                 'item': item,
-                'score': score,
-                'content': content if content else summary,  # Fallback to summary if content unavailable
-                'content_type': content_type if content else metadata.get('type', 'Unknown'),
+                'item_key': item_key,
+                'item_title': item_title,
                 'metadata': metadata,
-                'tags': tags
+                'tags': tags,
+                'summary': summary,
+                'content': content if content else summary,
+                'content_type': content_type if content else metadata.get('type', 'Unknown')
             })
 
-            # Rate limiting
-            time.sleep(0.5)
+        if not items_with_summaries:
+            print(f"\n⚠️  No items with summaries found. Run --build-summaries first.")
+            return ""
+
+        # Step 1.2: Build batch requests for relevance evaluation
+        print(f"\nStep 1.2: Building {len(items_with_summaries)} relevance evaluation requests...")
+
+        batch_requests = []
+        for item_data in items_with_summaries:
+            tags_str = ', '.join(item_data['tags']) if item_data['tags'] else 'None'
+
+            prompt = zr_prompts.relevance_evaluation_prompt(
+                research_brief=self.research_brief,
+                title=item_data['metadata'].get('title', 'Untitled'),
+                authors=item_data['metadata'].get('authors', 'Unknown'),
+                date=item_data['metadata'].get('date', 'Unknown'),
+                doc_type=item_data['metadata'].get('type', 'Unknown'),
+                tags=tags_str,
+                summary=item_data['summary'][:10000]
+            )
+
+            batch_requests.append({
+                'id': item_data['item_key'],
+                'prompt': prompt,
+                'max_tokens': 10,
+                'model': self.haiku_model
+            })
+
+        # Step 1.3: Evaluate relevance in parallel
+        print(f"Step 1.3: Evaluating relevance in parallel ({self.max_workers} workers)...")
+        print(f"Progress: ", end='', flush=True)
+
+        def progress_callback(completed, total):
+            print(f"{completed}/{total}...", end=' ', flush=True)
+
+        # Parse relevance score from response
+        def parse_relevance_score(response_text: str) -> Optional[int]:
+            """Extract relevance score 0-10 from response."""
+            try:
+                import re
+                match = re.search(r'^(\d+)$', response_text.strip())
+                if not match:
+                    match = re.search(r'\b(\d+)\b', response_text)
+                if match:
+                    score = int(match.group(1))
+                    return max(0, min(10, score))
+                return None
+            except Exception:
+                return None
+
+        relevance_results = self.llm_client.call_batch_with_parsing(
+            requests=batch_requests,
+            parser=parse_relevance_score,
+            max_workers=self.max_workers,
+            rate_limit_delay=self.rate_limit_delay,
+            progress_callback=progress_callback
+        )
+
+        print("\n")
+
+        # Step 1.4: Combine scores with source data
+        print(f"Step 1.4: Processing results...")
+
+        sources_with_scores = []
+        evaluated = 0
+
+        for item_data in items_with_summaries:
+            item_key = item_data['item_key']
+            score = relevance_results.get(item_key)
+
+            if score is not None:
+                print(f"  ✅ {item_data['item_title']} - Score: {score}/10")
+                sources_with_scores.append({
+                    'item': item_data['item'],
+                    'score': score,
+                    'content': item_data['content'],
+                    'content_type': item_data['content_type'],
+                    'metadata': item_data['metadata'],
+                    'tags': item_data['tags']
+                })
+                evaluated += 1
+            else:
+                print(f"  ⚠️  {item_data['item_title']} - Could not evaluate relevance")
 
         # Filter and rank sources
         print(f"\n{'='*80}")
@@ -1821,27 +1893,65 @@ Edit this note before running --query-summary"""
         print(f"Phase 3: Detailed Research Summaries")
         print(f"{'='*80}\n")
 
-        for idx, source_data in enumerate(relevant_sources, 1):
+        # Step 3.1: Build batch requests for targeted summaries
+        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...")
+
+        batch_requests = []
+        for source_data in relevant_sources:
             item = source_data['item']
             item_title = item['data'].get('title', 'Untitled')
-            score = source_data['score']
+            item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
 
-            print(f"\n[{idx}/{len(relevant_sources)}] 📝 {item_title} (Score: {score}/10)")
-            model_name = "Sonnet" if self.use_sonnet else "Haiku"
-            print(f"  🤖 Generating targeted summary ({model_name})...")
+            prompt = zr_prompts.targeted_summary_prompt(
+                research_brief=self.research_brief,
+                title=item_title,
+                content_type=content_type,
+                content=content[:100000]
+            )
 
-            summary_data = self.generate_targeted_summary(item, content, content_type)
-            if summary_data:
-                source_data['summary_data'] = summary_data
-                print(f"  ✅ Summary generated")
+            batch_requests.append({
+                'id': item_key,
+                'prompt': prompt,
+                'max_tokens': 4096,
+                'model': self.summary_model
+            })
+
+        # Step 3.2: Generate targeted summaries in parallel
+        model_name = "Sonnet" if self.use_sonnet else "Haiku"
+        print(f"Step 3.2: Generating summaries in parallel ({model_name}, {self.max_workers} workers)...")
+        print(f"Progress: ", end='', flush=True)
+
+        def progress_callback(completed, total):
+            print(f"{completed}/{total}...", end=' ', flush=True)
+
+        summary_results = self.llm_client.call_batch(
+            requests=batch_requests,
+            max_workers=self.max_workers,
+            rate_limit_delay=self.rate_limit_delay,
+            progress_callback=progress_callback
+        )
+
+        print("\n")
+
+        # Step 3.3: Attach results to sources
+        print(f"Step 3.3: Processing results...")
+
+        for source_data in relevant_sources:
+            item_key = source_data['item']['key']
+            item_title = source_data['item']['data'].get('title', 'Untitled')
+            summary_text = summary_results.get(item_key)
+
+            if summary_text:
+                source_data['summary_data'] = {
+                    'summary': summary_text,
+                    'full_text': summary_text
+                }
+                print(f"  ✅ {item_title}")
             else:
-                print(f"  ⚠️  Failed to generate summary")
                 source_data['summary_data'] = {'full_text': 'Summary generation failed'}
-
-            # Rate limiting
-            time.sleep(0.5)
+                print(f"  ⚠️  {item_title} - Failed to generate summary")
 
         # Phase 4: Compile HTML report
         print(f"\n{'='*80}")
@@ -1933,9 +2043,11 @@ Edit this note before running --query-summary"""
         print(f"Phase 1: Loading Summaries & Evaluating Relevance")
         print(f"{'='*80}\n")
 
-        sources_with_scores = []
+        # Step 1.1: Load and parse all summaries
+        print(f"Step 1.1: Loading general summaries...")
+
+        items_with_summaries = []
         missing_summaries = 0
-        evaluated = 0
 
         for idx, item in enumerate(items, 1):
             item_type = item['data'].get('itemType')
@@ -1945,25 +2057,22 @@ Edit this note before running --query-summary"""
             item_title = item['data'].get('title', 'Untitled')
             item_key = item['key']
 
-            print(f"\n[{idx}/{len(items)}] {item_title}")
-
             # Check for general summary
             if not self.has_general_summary(item_key):
-                print(f"  ⚠️  No general summary found, skipping (run --build-summaries first)")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - no summary (run --build-summaries first)")
                 missing_summaries += 1
                 continue
 
             # Parse general summary note
-            print(f"  Loading general summary...")
             summary_note = self.get_note_with_prefix(item_key, 'General Summary:')
             if not summary_note:
-                print(f"  ⚠️  Could not load summary note, skipping")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
                 continue
 
             parsed_summary = self.parse_general_summary_note(summary_note)
             if not parsed_summary:
-                print(f"  ⚠️  Could not parse summary note, skipping")
+                print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not parse summary")
                 missing_summaries += 1
                 continue
 
@@ -1974,33 +2083,102 @@ Edit this note before running --query-summary"""
             tags_display = ', '.join(tags[:3]) if tags else 'None'
             if len(tags) > 3:
                 tags_display += f", +{len(tags)-3} more"
-            print(f"  ✅ Loaded: {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
-
-            # Evaluate relevance using metadata and tags
-            print(f"  Evaluating relevance (Haiku)...")
-            score = self.evaluate_source_relevance(summary, metadata, tags)
-
-            if score is None:
-                print(f"  ⚠️  Could not evaluate relevance, skipping")
-                continue
-
-            print(f"  Relevance Score: {score}/10")
-            evaluated += 1
 
             # Get full content for detailed summary generation later
             content, content_type = self.get_source_content(item)
 
-            sources_with_scores.append({
+            print(f"[{idx}/{len(items)}] ✅ {item_title} - {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
+
+            items_with_summaries.append({
                 'item': item,
-                'score': score,
-                'content': content if content else summary,
-                'content_type': content_type if content else metadata.get('type', 'Unknown'),
+                'item_key': item_key,
+                'item_title': item_title,
                 'metadata': metadata,
-                'tags': tags
+                'tags': tags,
+                'summary': summary,
+                'content': content if content else summary,
+                'content_type': content_type if content else metadata.get('type', 'Unknown')
             })
 
-            # Rate limiting
-            time.sleep(0.5)
+        # Step 1.2: Build batch requests for relevance evaluation
+        print(f"\nStep 1.2: Building {len(items_with_summaries)} relevance evaluation requests...")
+
+        batch_requests = []
+        for item_data in items_with_summaries:
+            tags_str = ', '.join(item_data['tags']) if item_data['tags'] else 'None'
+
+            prompt = zr_prompts.relevance_evaluation_prompt(
+                research_brief=self.research_brief,
+                title=item_data['metadata'].get('title', 'Untitled'),
+                authors=item_data['metadata'].get('authors', 'Unknown'),
+                date=item_data['metadata'].get('date', 'Unknown'),
+                doc_type=item_data['metadata'].get('type', 'Unknown'),
+                tags=tags_str,
+                summary=item_data['summary'][:10000]
+            )
+
+            batch_requests.append({
+                'id': item_data['item_key'],
+                'prompt': prompt,
+                'max_tokens': 10,
+                'model': self.haiku_model
+            })
+
+        # Step 1.3: Evaluate relevance in parallel
+        print(f"Step 1.3: Evaluating relevance in parallel ({self.max_workers} workers)...")
+        print(f"Progress: ", end='', flush=True)
+
+        def progress_callback(completed, total):
+            print(f"{completed}/{total}...", end=' ', flush=True)
+
+        # Parse relevance score from response
+        def parse_relevance_score(response_text: str) -> Optional[int]:
+            """Extract relevance score 0-10 from response."""
+            try:
+                import re
+                match = re.search(r'^(\d+)', response_text.strip())
+                if not match:
+                    match = re.search(r'\b(\d+)\b', response_text)
+                if match:
+                    score = int(match.group(1))
+                    return max(0, min(10, score))
+                return None
+            except Exception:
+                return None
+
+        relevance_results = self.llm_client.call_batch_with_parsing(
+            requests=batch_requests,
+            parser=parse_relevance_score,
+            max_workers=self.max_workers,
+            rate_limit_delay=self.rate_limit_delay,
+            progress_callback=progress_callback
+        )
+
+        print("\n")
+
+        # Step 1.4: Combine scores with source data
+        print(f"Step 1.4: Processing results...")
+
+        sources_with_scores = []
+        evaluated = 0
+
+        for item_data in items_with_summaries:
+            item_key = item_data['item_key']
+            score = relevance_results.get(item_key)
+
+            if score is not None:
+                print(f"  ✅ {item_data['item_title']} - Score: {score}/10")
+                sources_with_scores.append({
+                    'item': item_data['item'],
+                    'score': score,
+                    'content': item_data['content'],
+                    'content_type': item_data['content_type'],
+                    'metadata': item_data['metadata'],
+                    'tags': item_data['tags']
+                })
+                evaluated += 1
+            else:
+                print(f"  ⚠️  {item_data['item_title']} - Could not evaluate relevance")
 
         # Filter and rank sources
         print(f"\n{'='*80}")
@@ -2024,27 +2202,65 @@ Edit this note before running --query-summary"""
         print(f"Phase 3: Detailed Research Summaries")
         print(f"{'='*80}\n")
 
-        for idx, source_data in enumerate(relevant_sources, 1):
+        # Step 3.1: Build batch requests for targeted summaries
+        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...")
+
+        batch_requests = []
+        for source_data in relevant_sources:
             item = source_data['item']
             item_title = item['data'].get('title', 'Untitled')
-            score = source_data['score']
+            item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
 
-            print(f"\n[{idx}/{len(relevant_sources)}] {item_title} (Score: {score}/10)")
-            model_name = "Sonnet" if self.use_sonnet else "Haiku"
-            print(f"  Generating targeted summary ({model_name})...")
+            prompt = zr_prompts.targeted_summary_prompt(
+                research_brief=self.research_brief,
+                title=item_title,
+                content_type=content_type,
+                content=content[:100000]
+            )
 
-            summary_data = self.generate_targeted_summary(item, content, content_type)
-            if summary_data:
-                source_data['summary_data'] = summary_data
-                print(f"  ✅ Summary generated")
+            batch_requests.append({
+                'id': item_key,
+                'prompt': prompt,
+                'max_tokens': 4096,
+                'model': self.summary_model
+            })
+
+        # Step 3.2: Generate targeted summaries in parallel
+        model_name = "Sonnet" if self.use_sonnet else "Haiku"
+        print(f"Step 3.2: Generating summaries in parallel ({model_name}, {self.max_workers} workers)...")
+        print(f"Progress: ", end='', flush=True)
+
+        def progress_callback(completed, total):
+            print(f"{completed}/{total}...", end=' ', flush=True)
+
+        summary_results = self.llm_client.call_batch(
+            requests=batch_requests,
+            max_workers=self.max_workers,
+            rate_limit_delay=self.rate_limit_delay,
+            progress_callback=progress_callback
+        )
+
+        print("\n")
+
+        # Step 3.3: Attach results to sources
+        print(f"Step 3.3: Processing results...")
+
+        for source_data in relevant_sources:
+            item_key = source_data['item']['key']
+            item_title = source_data['item']['data'].get('title', 'Untitled')
+            summary_text = summary_results.get(item_key)
+
+            if summary_text:
+                source_data['summary_data'] = {
+                    'summary': summary_text,
+                    'full_text': summary_text
+                }
+                print(f"  ✅ {item_title}")
             else:
-                print(f"  ⚠️  Failed to generate summary")
                 source_data['summary_data'] = {'full_text': 'Summary generation failed'}
-
-            # Rate limiting
-            time.sleep(0.5)
+                print(f"  ⚠️  {item_title} - Failed to generate summary")
 
         # Phase 4: Generate HTML report
         print(f"\n{'='*80}")
