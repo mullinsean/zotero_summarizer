@@ -915,7 +915,11 @@ Project: {self.project_name}
                 print(f"  ⚠️  Could not extract content, skipping")
                 continue
 
-            print(f"  ✅ Ready for processing ({len(content)} chars, {content_type})")
+            content_len = len(content)
+            if content_len > 50000:
+                print(f"  ✅ Ready for processing ({content_len:,} chars, {content_type}) - will truncate to 50,000")
+            else:
+                print(f"  ✅ Ready for processing ({content_len:,} chars, {content_type})")
 
             items_to_process.append({
                 'item': item,
@@ -2056,16 +2060,22 @@ Edit this note before running --query-summary"""
         print(f"{'='*80}\n")
 
         # Step 3.1: Build batch requests for targeted summaries
-        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...")
+        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...\n")
 
         batch_requests = []
-        for source_data in relevant_sources:
+        for idx, source_data in enumerate(relevant_sources, 1):
             item = source_data['item']
             item_title = item['data'].get('title', 'Untitled')
             item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
-            truncated = len(content) > 100000
+            content_len = len(content)
+            truncated = content_len > 100000
+
+            if truncated:
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to 100,000")
+            else:
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars)")
 
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
@@ -2367,16 +2377,22 @@ Edit this note before running --query-summary"""
         print(f"{'='*80}\n")
 
         # Step 3.1: Build batch requests for targeted summaries
-        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...")
+        print(f"Step 3.1: Building {len(relevant_sources)} targeted summary requests...\n")
 
         batch_requests = []
-        for source_data in relevant_sources:
+        for idx, source_data in enumerate(relevant_sources, 1):
             item = source_data['item']
             item_title = item['data'].get('title', 'Untitled')
             item_key = item['key']
             content = source_data['content']
             content_type = source_data['content_type']
-            truncated = len(content) > 100000
+            content_len = len(content)
+            truncated = content_len > 100000
+
+            if truncated:
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars) - will truncate to 100,000")
+            else:
+                print(f"  [{idx}/{len(relevant_sources)}] {item_title} ({content_len:,} chars)")
 
             prompt = zr_prompts.targeted_summary_prompt(
                 research_brief=self.research_brief,
