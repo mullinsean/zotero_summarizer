@@ -1768,6 +1768,609 @@ Edit this note before running --query-summary"""
 
         return output_file
 
+    def run_query_summary(self, collection_key: str) -> Optional[str]:
+        """
+        Phase 2 (Zotero-native): Query sources based on research brief from Zotero notes.
+
+        Loads research brief from ZoteroResearcher subcollection, runs query,
+        and stores report as a Zotero note (or HTML file if >1MB).
+
+        Args:
+            collection_key: The Zotero collection key to analyze
+
+        Returns:
+            Note key if report stored as note, or file path if stored as HTML file
+        """
+        start_time = time.time()
+
+        print(f"\n{'='*80}")
+        print(f"Research Query Summary (Zotero-native mode)")
+        print(f"{'='*80}\n")
+
+        # Load research brief from Zotero
+        print(f"Loading research brief from ZoteroResearcher subcollection...")
+        try:
+            self.research_brief = self.load_research_brief_from_zotero(collection_key)
+            print(f"✅ Loaded research brief ({len(self.research_brief)} characters)")
+            brief_preview = self.research_brief[:200].replace('\n', ' ')
+            print(f"   Preview: {brief_preview}...\n")
+        except (FileNotFoundError, ValueError) as e:
+            print(f"❌ Error loading research brief from Zotero: {e}")
+            print(f"\nOptions:")
+            print(f"   1. Run --init-collection first to create configuration notes")
+            print(f"   2. Edit the Research Brief note in ZoteroResearcher subcollection")
+            print(f"   3. Use file-based mode: --query --collection KEY --brief FILE\n")
+            return None
+
+        # Run the query using existing logic
+        print(f"\n{'='*80}")
+        print(f"Research Query Starting")
+        print(f"{'='*80}")
+        print(f"Collection: {collection_key}")
+        print(f"Relevance Threshold: {self.relevance_threshold}/10")
+        print(f"Max Sources: {self.max_sources}")
+        print(f"Summary Model: {self.summary_model} ({'Sonnet - High Quality' if self.use_sonnet else 'Haiku - Cost Efficient'})")
+        print(f"{'='*80}\n")
+
+        # Get collection items
+        items = self.get_collection_items(collection_key)
+        if not items:
+            print("❌ No items found in collection")
+            return None
+
+        # Limit sources if needed
+        if len(items) > self.max_sources:
+            print(f"⚠️  Collection has {len(items)} items, limiting to {self.max_sources}")
+            items = items[:self.max_sources]
+
+        # Phase 1: Parse summaries and evaluate relevance
+        print(f"\n{'='*80}")
+        print(f"Phase 1: Loading Summaries & Evaluating Relevance")
+        print(f"{'='*80}\n")
+
+        sources_with_scores = []
+        missing_summaries = 0
+        evaluated = 0
+
+        for idx, item in enumerate(items, 1):
+            item_type = item['data'].get('itemType')
+            if item_type in ['attachment', 'note']:
+                continue
+
+            item_title = item['data'].get('title', 'Untitled')
+            item_key = item['key']
+
+            print(f"\n[{idx}/{len(items)}] {item_title}")
+
+            # Check for general summary
+            if not self.has_general_summary(item_key):
+                print(f"  ⚠️  No general summary found, skipping (run --build-summaries first)")
+                missing_summaries += 1
+                continue
+
+            # Parse general summary note
+            print(f"  Loading general summary...")
+            summary_note = self.get_note_with_prefix(item_key, 'General Summary:')
+            if not summary_note:
+                print(f"  ⚠️  Could not load summary note, skipping")
+                missing_summaries += 1
+                continue
+
+            parsed_summary = self.parse_general_summary_note(summary_note)
+            if not parsed_summary:
+                print(f"  ⚠️  Could not parse summary note, skipping")
+                missing_summaries += 1
+                continue
+
+            metadata = parsed_summary['metadata']
+            tags = parsed_summary['tags']
+            summary = parsed_summary['summary']
+
+            tags_display = ', '.join(tags[:3]) if tags else 'None'
+            if len(tags) > 3:
+                tags_display += f", +{len(tags)-3} more"
+            print(f"  ✅ Loaded: {metadata.get('type', 'Unknown')} | Tags: {tags_display}")
+
+            # Evaluate relevance using metadata and tags
+            print(f"  Evaluating relevance (Haiku)...")
+            score = self.evaluate_source_relevance(summary, metadata, tags)
+
+            if score is None:
+                print(f"  ⚠️  Could not evaluate relevance, skipping")
+                continue
+
+            print(f"  Relevance Score: {score}/10")
+            evaluated += 1
+
+            # Get full content for detailed summary generation later
+            content, content_type = self.get_source_content(item)
+
+            sources_with_scores.append({
+                'item': item,
+                'score': score,
+                'content': content if content else summary,
+                'content_type': content_type if content else metadata.get('type', 'Unknown'),
+                'metadata': metadata,
+                'tags': tags
+            })
+
+            # Rate limiting
+            time.sleep(0.5)
+
+        # Filter and rank sources
+        print(f"\n{'='*80}")
+        print(f"Phase 2: Ranking & Filtering")
+        print(f"{'='*80}\n")
+
+        relevant_sources = [s for s in sources_with_scores if s['score'] >= self.relevance_threshold]
+        relevant_sources = self.rank_sources(relevant_sources)
+
+        print(f"  Sources meeting threshold ({self.relevance_threshold}/10): {len(relevant_sources)}")
+
+        if not relevant_sources:
+            print(f"\n⚠️  No sources meet the relevance threshold of {self.relevance_threshold}/10")
+            if missing_summaries > 0:
+                print(f"  Note: {missing_summaries} sources were missing summaries. Run --build-summaries first.")
+            print(f"  Try lowering the threshold or refining your research brief")
+            return None
+
+        # Phase 3: Generate detailed summaries
+        print(f"\n{'='*80}")
+        print(f"Phase 3: Detailed Research Summaries")
+        print(f"{'='*80}\n")
+
+        for idx, source_data in enumerate(relevant_sources, 1):
+            item = source_data['item']
+            item_title = item['data'].get('title', 'Untitled')
+            score = source_data['score']
+            content = source_data['content']
+            content_type = source_data['content_type']
+
+            print(f"\n[{idx}/{len(relevant_sources)}] {item_title} (Score: {score}/10)")
+            model_name = "Sonnet" if self.use_sonnet else "Haiku"
+            print(f"  Generating targeted summary ({model_name})...")
+
+            summary_data = self.generate_targeted_summary(item, content, content_type)
+            if summary_data:
+                source_data['summary_data'] = summary_data
+                print(f"  ✅ Summary generated")
+            else:
+                print(f"  ⚠️  Failed to generate summary")
+                source_data['summary_data'] = {'full_text': 'Summary generation failed'}
+
+            # Rate limiting
+            time.sleep(0.5)
+
+        # Phase 4: Generate HTML report
+        print(f"\n{'='*80}")
+        print(f"Phase 4: Generating Research Report")
+        print(f"{'='*80}\n")
+
+        elapsed_time = time.time() - start_time
+        stats = {
+            'total': len(items),
+            'evaluated': evaluated,
+            'relevant': len(relevant_sources),
+            'missing_summaries': missing_summaries,
+            'time': f"{elapsed_time:.1f} seconds"
+        }
+
+        # Generate HTML content (but don't save to file yet)
+        html_content = self._compile_research_html_string(collection_key, relevant_sources, stats)
+
+        # Check HTML size (1MB = 1,048,576 bytes)
+        html_size_bytes = len(html_content.encode('utf-8'))
+        html_size_mb = html_size_bytes / 1_048_576
+
+        print(f"  Report size: {html_size_mb:.2f} MB")
+
+        # Get ZoteroResearcher subcollection
+        subcollection_key = self.get_subcollection(collection_key, "ZoteroResearcher")
+        if not subcollection_key:
+            print(f"❌ ZoteroResearcher subcollection not found")
+            print(f"   Run --init-collection first")
+            return None
+
+        # If report >1MB, save as file and create stub note
+        if html_size_bytes > 1_048_576:
+            print(f"  ⚠️  Report exceeds 1MB limit for Zotero notes")
+            print(f"  Saving as HTML file instead...")
+
+            # Save HTML file
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_file = f"research_report_{collection_key}_{timestamp}.html"
+
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+            print(f"  ✅ HTML file saved: {output_file}")
+
+            # Create stub note
+            stub_content = f"""This research report exceeded the 1MB limit for Zotero notes.
+
+The full report has been saved to:
+{os.path.abspath(output_file)}
+
+Report Statistics:
+- Total sources: {stats['total']}
+- Evaluated: {stats['evaluated']}
+- Relevant sources: {stats['relevant']}
+- Processing time: {stats['time']}
+
+Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
+"""
+
+            note_key = self.create_standalone_note(
+                subcollection_key,
+                stub_content,
+                f"Research Report - {datetime.now().strftime('%Y-%m-%d')} (See File)",
+                convert_markdown=True
+            )
+
+            if note_key:
+                print(f"  ✅ Stub note created in ZoteroResearcher subcollection")
+            else:
+                print(f"  ⚠️  Failed to create stub note")
+
+            # Final summary
+            print(f"\n{'='*80}")
+            print(f"✅ Query Complete")
+            print(f"{'='*80}")
+            print(f"Total sources: {stats['total']}")
+            print(f"Evaluated: {stats['evaluated']}")
+            print(f"Missing summaries: {stats['missing_summaries']}")
+            print(f"Relevant: {stats['relevant']}")
+            print(f"Processing time: {stats['time']}")
+            print(f"Report: {output_file} (with stub note in Zotero)")
+            print(f"{'='*80}\n")
+
+            return output_file
+
+        # If report <1MB, create full note in Zotero
+        else:
+            print(f"  Creating note in ZoteroResearcher subcollection...")
+
+            # Extract title from research brief (first line or first 100 chars)
+            brief_lines = self.research_brief.strip().split('\n')
+            brief_title = brief_lines[0] if brief_lines else "Research Report"
+            if len(brief_title) > 100:
+                brief_title = brief_title[:97] + "..."
+
+            note_title = f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {brief_title}"
+
+            # Create note with HTML content directly (no markdown conversion)
+            note_key = self.create_standalone_note(
+                subcollection_key,
+                html_content,
+                note_title,
+                convert_markdown=False  # Already HTML
+            )
+
+            if note_key:
+                print(f"  ✅ Report note created in ZoteroResearcher subcollection")
+            else:
+                print(f"  ❌ Failed to create report note")
+                return None
+
+            # Final summary
+            print(f"\n{'='*80}")
+            print(f"✅ Query Complete")
+            print(f"{'='*80}")
+            print(f"Total sources: {stats['total']}")
+            print(f"Evaluated: {stats['evaluated']}")
+            print(f"Missing summaries: {stats['missing_summaries']}")
+            print(f"Relevant: {stats['relevant']}")
+            print(f"Processing time: {stats['time']}")
+            print(f"Report: Stored as note in ZoteroResearcher subcollection")
+            print(f"{'='*80}\n")
+
+            return note_key
+
+    def _compile_research_html_string(self, collection_key: str, relevant_sources: List[Dict], stats: Dict) -> str:
+        """
+        Internal method: Generate HTML report as string (doesn't save to file).
+
+        Args:
+            collection_key: Collection key
+            relevant_sources: List of relevant sources with summaries
+            stats: Statistics dict
+
+        Returns:
+            HTML content as string
+        """
+        # Reuse existing compile_research_html logic but return string instead of saving
+        html_parts = []
+
+        # HTML header
+        html_parts.append("""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 30px;
+            background-color: #f5f7fa;
+            color: #2c3e50;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            border-radius: 10px;
+            margin-bottom: 40px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header h1 {
+            margin: 0 0 15px 0;
+            font-size: 2.5em;
+        }
+        .meta {
+            font-size: 0.95em;
+            opacity: 0.95;
+            line-height: 1.8;
+        }
+        .research-brief {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 5px solid #3498db;
+        }
+        .research-brief h2 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .brief-text {
+            white-space: pre-wrap;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            line-height: 1.8;
+        }
+        .toc {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .toc h2 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+        .toc ol {
+            line-height: 2;
+        }
+        .toc a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .toc a:hover {
+            text-decoration: underline;
+        }
+        .relevance-score {
+            float: right;
+            background: #ecf0f1;
+            padding: 3px 12px;
+            border-radius: 15px;
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #7f8c8d;
+        }
+        .relevance-score.high {
+            background: #2ecc71;
+            color: white;
+        }
+        .relevance-score.medium {
+            background: #f39c12;
+            color: white;
+        }
+        .source {
+            background: white;
+            padding: 35px;
+            margin-bottom: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .source h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 15px;
+        }
+        .metadata {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            line-height: 1.9;
+        }
+        .metadata strong {
+            color: #34495e;
+        }
+        .content-section {
+            margin-top: 25px;
+            line-height: 1.8;
+        }
+        .content-section h4 {
+            color: #2c3e50;
+            margin-top: 25px;
+            border-left: 4px solid #3498db;
+            padding-left: 15px;
+        }
+        .tag-badge {
+            display: inline-block;
+            background: #e8f4fd;
+            color: #2980b9;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 0.85em;
+            margin-right: 6px;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+        .back-to-top {
+            display: inline-block;
+            margin-top: 25px;
+            color: #3498db;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        .back-to-top:hover {
+            text-decoration: underline;
+        }
+        .stats {
+            background: linear-gradient(135deg, #27ae60 0%, #2ecc71 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px;
+            margin-top: 40px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .stats h2 {
+            margin-top: 0;
+        }
+        .stats ul {
+            list-style: none;
+            padding: 0;
+            line-height: 2;
+        }
+        .stats li:before {
+            content: "✓ ";
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+""")
+
+        # Header
+        html_parts.append(f"""
+    <div class="header">
+        <h1>Research Report</h1>
+        <div class="meta">
+            Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}<br>
+            Collection: {collection_key}<br>
+            Relevant Sources Found: {len(relevant_sources)}<br>
+            Relevance Threshold: {self.relevance_threshold}/10
+        </div>
+    </div>
+""")
+
+        # Research Brief Section
+        html_parts.append(f"""
+    <div class="research-brief">
+        <h2>Research Brief</h2>
+        <div class="brief-text">{self.research_brief}</div>
+    </div>
+""")
+
+        # Table of Contents
+        html_parts.append("""
+    <div class="toc">
+        <h2>Table of Contents</h2>
+        <ol>
+""")
+
+        for idx, source_data in enumerate(relevant_sources, 1):
+            item_title = source_data['item']['data'].get('title', 'Untitled')
+            score = source_data['score']
+            anchor = f"source-{idx}"
+
+            score_class = "high" if score >= 8 else ("medium" if score >= 6 else "")
+
+            html_parts.append(
+                f'            <li><a href="#{anchor}">{item_title}</a>'
+                f'<span class="relevance-score {score_class}">{score}/10</span></li>\n'
+            )
+
+        html_parts.append("""        </ol>
+    </div>
+""")
+
+        # Individual source summaries
+        for idx, source_data in enumerate(relevant_sources, 1):
+            item = source_data['item']
+            item_title = item['data'].get('title', 'Untitled')
+            item_key = item['key']
+            score = source_data['score']
+            content_type = source_data.get('content_type', 'Unknown')
+            summary_data = source_data.get('summary_data', {})
+            metadata = source_data.get('metadata', {})
+            tags = source_data.get('tags', [])
+
+            anchor = f"source-{idx}"
+
+            # Build Zotero link
+            library_type = 'groups' if self.zot.library_type == 'group' else 'library'
+            zotero_link = f"zotero://select/{library_type}/{self.zot.library_id}/items/{item_key}"
+
+            # Convert markdown to HTML
+            summary_markdown = summary_data.get('full_text', 'Summary not available')
+            summary_html = markdown.markdown(summary_markdown, extensions=['extra', 'nl2br'])
+
+            # Format tags as badges
+            tags_html = ''
+            if tags:
+                tags_badges = [f'<span class="tag-badge">{tag}</span>' for tag in tags]
+                tags_html = f"<br><strong>Tags:</strong> {' '.join(tags_badges)}"
+
+            # Format metadata
+            authors_display = metadata.get('authors', 'Unknown')
+            date_display = metadata.get('date', 'Unknown')
+            publication_display = metadata.get('publication', 'N/A')
+            doc_type_display = metadata.get('type', content_type)
+            url_display = metadata.get('url', '')
+            url_html = f'<br><strong>URL:</strong> <a href="{url_display}" target="_blank">{url_display}</a>' if url_display else ''
+
+            html_parts.append(f"""
+    <div class="source" id="{anchor}">
+        <h3>{idx}. {item_title}</h3>
+        <div class="metadata">
+            <strong>Authors:</strong> {authors_display}<br>
+            <strong>Date:</strong> {date_display}<br>
+            <strong>Publication:</strong> {publication_display}<br>
+            <strong>Type:</strong> {doc_type_display}<br>
+            <strong>Relevance Score:</strong> {score}/10{tags_html}{url_html}<br>
+            <strong>Zotero Link:</strong> <a href="{zotero_link}" target="_blank">Open in Zotero</a>
+        </div>
+        <div class="content-section">
+{summary_html}
+        </div>
+        <a href="#" class="back-to-top">↑ Back to top</a>
+    </div>
+""")
+
+        # Statistics Section
+        html_parts.append(f"""
+    <div class="stats">
+        <h2>Research Statistics</h2>
+        <ul>
+            <li>Total sources in collection: {stats.get('total', 0)}</li>
+            <li>Sources evaluated: {stats.get('evaluated', 0)}</li>
+            <li>Missing summaries: {stats.get('missing_summaries', 0)}</li>
+            <li>Relevant sources (≥ {self.relevance_threshold}/10): {stats.get('relevant', 0)}</li>
+            <li>Processing time: {stats.get('time', 'N/A')}</li>
+        </ul>
+    </div>
+""")
+
+        # HTML footer
+        html_parts.append("""
+</body>
+</html>
+""")
+
+        return ''.join(html_parts)
+
 
 def main():
     """Main entry point."""
@@ -1795,6 +2398,9 @@ Examples:
   python researcher.py --build-summaries --collection KEY \\
       --project-overview overview.txt --tags tags.txt
 
+  # Phase 2: Query with research brief (Zotero-native mode)
+  python researcher.py --query-summary --collection KEY
+
   # Phase 2: Query with research brief (file-based mode)
   python researcher.py --query --collection KEY --brief brief.txt
 
@@ -1821,9 +2427,14 @@ Examples:
         help='Phase 1: Build general summaries with metadata and tags'
     )
     mode_group.add_argument(
+        '--query-summary',
+        action='store_true',
+        help='Phase 2: Query sources using research brief from Zotero notes (Zotero-native mode)'
+    )
+    mode_group.add_argument(
         '--query',
         action='store_true',
-        help='Phase 2: Query sources based on research brief (default if no mode specified)'
+        help='Phase 2: Query sources based on research brief from file (file-based mode, default if no mode specified)'
     )
 
     # Common arguments
@@ -1888,7 +2499,7 @@ Examples:
     args = parser.parse_args()
 
     # Determine mode (default to query for backward compatibility)
-    if not args.list_collections and not args.build_summaries and not args.query:
+    if not args.list_collections and not args.init_collection and not args.build_summaries and not args.query_summary and not args.query:
         args.query = True
 
     # Get configuration from environment
@@ -1976,7 +2587,19 @@ Examples:
         researcher.build_general_summaries(collection_key)
         return
 
-    # Handle --query mode
+    # Handle --query-summary mode (Zotero-native)
+    if args.query_summary:
+        # Run query with research brief from Zotero
+        result = researcher.run_query_summary(collection_key)
+
+        if result:
+            if result.endswith('.html'):
+                print(f"Note: Large report saved as file (with stub note in Zotero)")
+            else:
+                print(f"Note: Report saved as note in ZoteroResearcher subcollection")
+        return
+
+    # Handle --query mode (file-based)
     if args.query:
         if not args.brief:
             print("Error: --brief is required for --query mode")
