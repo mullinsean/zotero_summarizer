@@ -460,15 +460,15 @@ class ZoteroResearcher(ZoteroBaseProcessor):
 
     def has_general_summary(self, item_key: str) -> bool:
         """
-        Check if an item has a cached general summary note.
+        Check if an item has a cached general summary note for this project.
 
         Args:
             item_key: The key of the item
 
         Returns:
-            True if a general summary exists
+            True if a general summary exists for this project
         """
-        return self.has_note_with_prefix(item_key, '【ZResearcher Summary】')
+        return self.has_note_with_prefix(item_key, self._get_summary_note_prefix())
 
     def format_general_summary_note(
         self,
@@ -490,12 +490,14 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             Formatted note content as plain text
         """
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        project_name = self.project_overview.split('\n')[0] if self.project_overview else "Research Project"
 
         # Format tags as comma-separated list
         tags_str = ', '.join(tags) if tags else 'None'
 
-        note_content = f"""【ZResearcher Summary】
+        # Get project-specific summary title (without the colon, as that's added as prefix)
+        summary_title = f"【ZResearcher Summary: {self.project_name}】"
+
+        note_content = f"""{summary_title}
 
 ## Metadata
 - **Title**: {metadata.get('title', 'Untitled')}
@@ -513,7 +515,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
 
 ---
 Created: {timestamp}
-Project: {project_name}
+Project: {self.project_name}
 """
         return note_content
 
@@ -1615,8 +1617,8 @@ Project: {project_name}
         """
         Initialize a collection for use with ZoteroResearcher.
 
-        Creates a "【ZResearcher】" subcollection and populates it with
-        template notes for 【Project Overview】, 【Research Tags】, and 【Research Brief】.
+        Creates a project-specific subcollection and populates it with
+        template notes for configuration.
 
         Args:
             collection_key: The Zotero collection key to initialize
@@ -1625,15 +1627,17 @@ Project: {project_name}
         Returns:
             True if initialization successful
         """
+        subcollection_name = self._get_subcollection_name()
+
         print(f"\n{'='*80}")
-        print(f"Initializing Collection for ZoteroResearcher")
+        print(f"Initializing Collection for Project: {self.project_name}")
         print(f"{'='*80}\n")
 
-        # Check if 【ZResearcher】 subcollection already exists
-        existing_key = self.get_subcollection(collection_key, "【ZResearcher】")
+        # Check if subcollection already exists
+        existing_key = self.get_subcollection(collection_key, subcollection_name)
 
         if existing_key and not force:
-            print(f"⚠️  Collection already initialized with 【ZResearcher】 subcollection")
+            print(f"⚠️  Project already initialized with {subcollection_name} subcollection")
             print(f"   Subcollection Key: {existing_key}")
             print(f"\n   Options:")
             print(f"   1. Use existing configuration (edit notes in Zotero)")
@@ -1642,8 +1646,8 @@ Project: {project_name}
             return False
 
         # Create or get subcollection
-        print(f"Creating 【ZResearcher】 subcollection...")
-        subcollection_key = self.create_subcollection(collection_key, "【ZResearcher】")
+        print(f"Creating {subcollection_name} subcollection...")
+        subcollection_key = self.create_subcollection(collection_key, subcollection_name)
 
         if not subcollection_key:
             print(f"❌ Failed to create subcollection")
@@ -1674,14 +1678,14 @@ Edit this note before running --build-summaries"""
         overview_key = self.create_standalone_note(
             subcollection_key,
             project_overview_content,
-            "【Project Overview】",
+            self._get_project_overview_note_title(),
             convert_markdown=True
         )
 
         if overview_key:
-            print(f"   ✅ Created: 【Project Overview】")
+            print(f"   ✅ Created: {self._get_project_overview_note_title()}")
         else:
-            print(f"   ❌ Failed to create: 【Project Overview】")
+            print(f"   ❌ Failed to create: {self._get_project_overview_note_title()}")
 
         # Template 2: Research Tags
         research_tags_content = """[TODO: Replace this template with your tag list]
@@ -1706,14 +1710,14 @@ Edit this note before running --build-summaries"""
         tags_key = self.create_standalone_note(
             subcollection_key,
             research_tags_content,
-            "【Research Tags】",
+            self._get_research_tags_note_title(),
             convert_markdown=True
         )
 
         if tags_key:
-            print(f"   ✅ Created: 【Research Tags】")
+            print(f"   ✅ Created: {self._get_research_tags_note_title()}")
         else:
-            print(f"   ❌ Failed to create: 【Research Tags】")
+            print(f"   ❌ Failed to create: {self._get_research_tags_note_title()}")
 
         # Template 3: Research Brief
         research_brief_content = """[TODO: Replace this template with your specific research question]
@@ -1743,30 +1747,30 @@ Edit this note before running --query-summary"""
         brief_key = self.create_standalone_note(
             subcollection_key,
             research_brief_content,
-            "【Research Brief】",
+            self._get_research_brief_note_title(),
             convert_markdown=True
         )
 
         if brief_key:
-            print(f"   ✅ Created: 【Research Brief】")
+            print(f"   ✅ Created: {self._get_research_brief_note_title()}")
         else:
-            print(f"   ❌ Failed to create: 【Research Brief】")
+            print(f"   ❌ Failed to create: {self._get_research_brief_note_title()}")
 
         # Final output
         print(f"\n{'='*80}")
-        print(f"✅ Collection Initialized Successfully")
+        print(f"✅ Project Initialized Successfully")
         print(f"{'='*80}\n")
-        print(f"【ZResearcher】 subcollection created: {subcollection_key}\n")
+        print(f"{subcollection_name} subcollection created: {subcollection_key}\n")
         print(f"Configuration templates created:")
-        print(f"   - 【Project Overview】 (edit before building summaries)")
-        print(f"   - 【Research Tags】 (edit before building summaries)")
-        print(f"   - 【Research Brief】 (edit before running queries)\n")
+        print(f"   - {self._get_project_overview_note_title()} (edit before building summaries)")
+        print(f"   - {self._get_research_tags_note_title()} (edit before building summaries)")
+        print(f"   - {self._get_research_brief_note_title()} (edit before running queries)\n")
         print(f"Next steps:")
-        print(f"   1. Open the '【ZResearcher】' subcollection in Zotero")
-        print(f"   2. Edit '【Project Overview】' with your project description")
-        print(f"   3. Edit '【Research Tags】' with your tag list")
-        print(f"   4. Edit '【Research Brief】' with your research question")
-        print(f"   5. Run: python zresearcher.py --build-summaries --collection {collection_key}")
+        print(f"   1. Open the '{subcollection_name}' subcollection in Zotero")
+        print(f"   2. Edit '{self._get_project_overview_note_title()}' with your project description")
+        print(f"   3. Edit '{self._get_research_tags_note_title()}' with your tag list")
+        print(f"   4. Edit '{self._get_research_brief_note_title()}' with your research question")
+        print(f"   5. Run: python zresearcher.py --build-summaries --collection {collection_key} --project \"{self.project_name}\"")
         print(f"{'='*80}\n")
 
         return True
