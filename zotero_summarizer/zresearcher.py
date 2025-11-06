@@ -1450,7 +1450,7 @@ Project: {self.project_name}
 
     def load_project_overview_from_zotero(self, collection_key: str) -> str:
         """
-        Load project overview from 【ZResearcher】 subcollection note.
+        Load project overview from project-specific subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1462,12 +1462,15 @@ Project: {self.project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        # Get 【ZResearcher】 subcollection
-        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
+        subcollection_name = self._get_subcollection_name()
+        note_title = self._get_project_overview_note_title()
+
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
         if not subcollection_key:
             raise FileNotFoundError(
-                "【ZResearcher】 subcollection not found. "
-                "Run --init-collection first."
+                f"{subcollection_name} subcollection not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
             )
 
         # Get all notes in subcollection
@@ -1475,13 +1478,13 @@ Project: {self.project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '【Project Overview】' in title:
+            if note_title in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "【Project Overview】 note still contains template. "
+                        f"{note_title} still contains template. "
                         "Please edit the note in Zotero before building summaries."
                     )
 
@@ -1491,19 +1494,19 @@ Project: {self.project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '【Project Overview】' in lines[0]:
+                if lines and note_title in lines[0]:
                     content = '\n'.join(lines[1:])
 
                 return content.strip()
 
         raise FileNotFoundError(
-            "【Project Overview】 note not found in 【ZResearcher】 subcollection. "
-            "Run --init-collection first."
+            f"{note_title} not found in {subcollection_name} subcollection. "
+            f"Run --init-collection --project \"{self.project_name}\" first."
         )
 
     def load_tags_from_zotero(self, collection_key: str) -> List[str]:
         """
-        Load research tags from 【ZResearcher】 subcollection note.
+        Load research tags from project-specific subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1515,12 +1518,15 @@ Project: {self.project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder or is empty
         """
-        # Get 【ZResearcher】 subcollection
-        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
+        subcollection_name = self._get_subcollection_name()
+        note_title = self._get_research_tags_note_title()
+
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
         if not subcollection_key:
             raise FileNotFoundError(
-                "【ZResearcher】 subcollection not found. "
-                "Run --init-collection first."
+                f"{subcollection_name} subcollection not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
             )
 
         # Get all notes in subcollection
@@ -1528,13 +1534,13 @@ Project: {self.project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '【Research Tags】' in title:
+            if note_title in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "【Research Tags】 note still contains template. "
+                        f"{note_title} still contains template. "
                         "Please edit the note in Zotero before building summaries."
                     )
 
@@ -1544,25 +1550,25 @@ Project: {self.project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '【Research Tags】' in lines[0]:
+                if lines and note_title in lines[0]:
                     lines = lines[1:]
 
                 # Parse tags (one per line), filter empty lines
                 tags = [line.strip() for line in lines if line.strip() and not line.startswith('Example')]
 
                 if not tags:
-                    raise ValueError("【Research Tags】 note is empty. Please add tags.")
+                    raise ValueError(f"{note_title} is empty. Please add tags.")
 
                 return tags
 
         raise FileNotFoundError(
-            "【Research Tags】 note not found in 【ZResearcher】 subcollection. "
-            "Run --init-collection first."
+            f"{note_title} not found in {subcollection_name} subcollection. "
+            f"Run --init-collection --project \"{self.project_name}\" first."
         )
 
     def load_research_brief_from_zotero(self, collection_key: str) -> str:
         """
-        Load research brief from 【ZResearcher】 subcollection note.
+        Load research brief from project-specific subcollection note.
 
         Args:
             collection_key: Parent collection key
@@ -1574,12 +1580,15 @@ Project: {self.project_name}
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        # Get 【ZResearcher】 subcollection
-        subcollection_key = self.get_subcollection(collection_key, "【ZResearcher】")
+        subcollection_name = self._get_subcollection_name()
+        note_title = self._get_research_brief_note_title()
+
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
         if not subcollection_key:
             raise FileNotFoundError(
-                "【ZResearcher】 subcollection not found. "
-                "Run --init-collection first."
+                f"{subcollection_name} subcollection not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
             )
 
         # Get all notes in subcollection
@@ -1587,13 +1596,13 @@ Project: {self.project_name}
 
         for note in notes:
             title = self.get_note_title_from_html(note['data']['note'])
-            if '【Research Brief】' in title:
+            if note_title in title:
                 content = self.extract_text_from_note_html(note['data']['note'])
 
                 # Check if still template
                 if '[TODO:' in content:
                     raise ValueError(
-                        "【Research Brief】 note still contains template. "
+                        f"{note_title} still contains template. "
                         "Please edit the note in Zotero before running query."
                     )
 
@@ -1603,14 +1612,14 @@ Project: {self.project_name}
 
                 # Remove title line
                 lines = content.split('\n')
-                if lines and '【Research Brief】' in lines[0]:
+                if lines and note_title in lines[0]:
                     content = '\n'.join(lines[1:])
 
                 return content.strip()
 
         raise FileNotFoundError(
-            "【Research Brief】 note not found in 【ZResearcher】 subcollection. "
-            "Run --init-collection first, then edit the 【Research Brief】 note."
+            f"{note_title} not found in {subcollection_name} subcollection. "
+            f"Run --init-collection --project \"{self.project_name}\" first, then edit the {note_title} note."
         )
 
     def init_collection(self, collection_key: str, force: bool = False) -> bool:
