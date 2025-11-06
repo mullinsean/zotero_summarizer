@@ -325,3 +325,163 @@ class ZoteroBaseProcessor:
         except Exception as e:
             print(f"  ❌ Error creating note: {e}")
             return False
+
+    def get_subcollection(self, parent_collection_key: str, subcollection_name: str) -> Optional[str]:
+        """
+        Get a subcollection key by name within a parent collection.
+
+        Args:
+            parent_collection_key: Key of parent collection
+            subcollection_name: Name of subcollection to find
+
+        Returns:
+            Subcollection key or None if not found
+        """
+        try:
+            collections = self.zot.collections_sub(parent_collection_key)
+            for coll in collections:
+                if coll['data']['name'] == subcollection_name:
+                    return coll['key']
+            return None
+        except Exception as e:
+            print(f"  ❌ Error getting subcollection: {e}")
+            return None
+
+    def create_subcollection(self, parent_collection_key: str, subcollection_name: str) -> Optional[str]:
+        """
+        Create a subcollection inside a parent collection.
+
+        Args:
+            parent_collection_key: Key of parent collection
+            subcollection_name: Name for new subcollection
+
+        Returns:
+            Key of created subcollection or None if creation fails
+        """
+        try:
+            # Check if already exists
+            existing_key = self.get_subcollection(parent_collection_key, subcollection_name)
+            if existing_key:
+                return existing_key
+
+            # Create new subcollection
+            template = self.zot.collection_template()
+            template['name'] = subcollection_name
+            template['parentCollection'] = parent_collection_key
+
+            result = self.zot.create_collections([template])
+
+            if result['successful']:
+                return result['successful']['0']['key']
+            else:
+                print(f"  ❌ Failed to create subcollection: {result}")
+                return None
+        except Exception as e:
+            print(f"  ❌ Error creating subcollection: {e}")
+            return None
+
+    def create_standalone_note(
+        self,
+        collection_key: str,
+        content: str,
+        title: str,
+        convert_markdown: bool = True,
+        tags: Optional[List[str]] = None
+    ) -> Optional[str]:
+        """
+        Create a standalone note (not attached to an item) in a collection.
+
+        Args:
+            collection_key: Collection to add note to
+            content: Note content (markdown or HTML)
+            title: Note title (will be first heading in HTML)
+            convert_markdown: If True, convert markdown to HTML
+            tags: Optional list of Zotero tags
+
+        Returns:
+            Item key of created note or None if creation fails
+        """
+        try:
+            # Prepend title
+            full_content = f"# {title}\n\n{content}"
+
+            # Convert markdown to HTML for proper Zotero rendering
+            if convert_markdown:
+                html_content = self.markdown_to_html(full_content)
+            else:
+                html_content = full_content
+
+            note_template = self.zot.item_template('note')
+            note_template['note'] = html_content
+            note_template['collections'] = [collection_key]
+
+            if tags:
+                note_template['tags'] = [{'tag': tag} for tag in tags]
+
+            result = self.zot.create_items([note_template])
+
+            if result['successful']:
+                note_key = result['successful']['0']['key']
+                print(f"  ✅ Standalone note created successfully")
+                return note_key
+            else:
+                print(f"  ❌ Failed to create standalone note: {result}")
+                return None
+        except Exception as e:
+            print(f"  ❌ Error creating standalone note: {e}")
+            return None
+
+    def get_collection_notes(self, collection_key: str) -> List[Dict]:
+        """
+        Get all standalone notes in a collection (not attached to items).
+
+        Args:
+            collection_key: Collection key
+
+        Returns:
+            List of note items
+        """
+        try:
+            items = self.zot.collection_items(collection_key)
+            notes = [item for item in items if item['data']['itemType'] == 'note']
+            return notes
+        except Exception as e:
+            print(f"  ❌ Error getting collection notes: {e}")
+            return []
+
+    def get_note_title_from_html(self, note_html: str) -> str:
+        """
+        Extract title from note HTML (first h1 or first line).
+
+        Args:
+            note_html: HTML content of note
+
+        Returns:
+            Note title
+        """
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(note_html, 'html.parser')
+
+        # Try to find h1
+        h1 = soup.find('h1')
+        if h1:
+            return h1.get_text().strip()
+
+        # Fall back to first non-empty line
+        text = soup.get_text().strip()
+        first_line = text.split('\n')[0] if text else 'Untitled'
+        return first_line.strip()
+
+    def extract_text_from_note_html(self, note_html: str) -> str:
+        """
+        Extract plain text from note HTML.
+
+        Args:
+            note_html: HTML content of note
+
+        Returns:
+            Plain text content
+        """
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(note_html, 'html.parser')
+        return soup.get_text().strip()

@@ -1,30 +1,17 @@
-AI Code Generation
-Code Completion
-GitHub Copilot
-ChatGPT
-Claude Code
-Automated Testing
-Bug Detection
-Code Review Automation
-Developer Productivity
-Code Quality
-Technical Debt
-Security Concerns
-Bias and Ethics
-Developer Experience
-Empirical Studies
-Case Studies
-Industry Reports
-Survey Data
-ROI Analysis
-Adoption Patterns
-Best Practices
-Tool Comparison
-Performance Metrics
-Workflow Changes
-Skills Requirements
-Team Dynamics
-Code Maintainability
-Documentation Generation
-Refactoring Automation
-API Development
+digital-sovereignty
+geopolitical-risks
+economic-coercion
+ai-adoption
+compute-infrastructure
+semiconductor-supply-chain
+cloud-act
+cusma-trade-agreements
+data-localization
+cybersecurity-threats
+training-vs-inference
+open-source-models
+vendor-lock-in
+hyperscalers
+mlops-orchestration
+procurement-reform
+middle-power-strategies

@@ -1,16 +1,48 @@
-Research Project: Impact of Artificial Intelligence on Software Development Practices
+SOVEREIGNTY, NOT SOLITUDE: A SOVEREIGN AI STRATEGY FOR CANADA
 
-This research project examines how artificial intelligence and machine learning technologies are fundamentally transforming software development practices in the modern tech industry. The study aims to produce a comprehensive technical report for software engineering managers and technical leaders who are evaluating the adoption of AI-assisted development tools.
+CORE THESIS
 
-Key Research Areas:
-1. AI-assisted code generation and completion tools (GitHub Copilot, ChatGPT, Claude Code, etc.)
-2. Automated testing, bug detection, and code review using machine learning
-3. Quantitative impacts on developer productivity and velocity
-4. Code quality metrics and technical debt implications
-5. Ethical considerations, bias, and security concerns
-6. Changes to developer roles, skills, and workflows
-7. Organizational adoption patterns and best practices
+Canada must pursue a pragmatic, risk-based approach to digital sovereignty centered on being "free from coercion" rather than pursuing technological self-sufficiency or digital isolationism. The goal is strategic autonomy - ensuring Canadian data and digital infrastructure are governed by Canadian laws and values, secure from foreign threats, and resilient to geopolitical pressures, while remaining competitive in the global digital ecosystem.
 
-The research will synthesize findings from peer-reviewed academic studies, industry reports, case studies from major tech companies, and surveys of developer experiences. The goal is to provide evidence-based recommendations for organizations considering AI tool adoption, including implementation strategies, potential ROI, and risk mitigation approaches.
+KEY DRIVERS
 
-Target deliverable: A 20-30 page technical report with executive summary, methodology, findings, case studies, and actionable recommendations.
+Geopolitical: Rising great-power competition, supply chain vulnerabilities (especially semiconductors), cybersecurity threats, and risks from foreign laws like the U.S. CLOUD Act
+
+Economic: Closing Canada's AI adoption gap is critical for productivity gains, wage growth, and maintaining competitiveness. LLMs represent a transformational inflection point for knowledge work that Canada must capitalize on.
+
+FRAMEWORK
+
+The paper proposes a two-dimensional model:
+
+Dimension 1 - Seven-Layer Technology Stack:
+1. Physical Infrastructure (power, data centers, secure facilities)
+2. Compute Hardware (GPUs, CPUs, accelerators, interconnects)
+3. Cloud and Network Infrastructure (IaaS/PaaS, storage, data transit)
+4. Orchestration and MLOps (training/inference tooling, schedulers)
+5. Foundation Models (training, fine-tuning)
+6. Applications (APIs, enterprise integrations)
+7. Data and Data Governance
+
+Dimension 2 - Three-Tier Security Classification:
+- Tier 1 (Absolute Sovereignty): National security, defense, intelligence - requires fully air-gapped, Canadian-owned infrastructure
+- Tier 2 (Jurisdictional Sovereignty): Healthcare, finance, critical public services - requires Canadian data storage under Canadian law exclusively
+- Tier 3 (Strategic Resilience): General business and consumer applications - allows global hyperscalers with strong contractual controls, data residency, and encryption
+
+STRATEGIC PRIORITIES
+
+- Distinguish between compute needs for AI training (massive upfront costs) versus inference (distributed, ongoing deployment)
+- Emphasize securing inference capacity first to accelerate adoption and productivity
+- Use open-source software and models strategically to prevent vendor lock-in
+- Leverage government procurement and "lighthouse projects" to catalyze adoption
+- Prepare for 2026 CUSMA renegotiations with clear positions on data localization and digital trade
+- Build alliances with other middle powers on AI standards and compute pooling
+
+APPROACH
+
+The paper will conduct a layer-by-layer assessment of Canada's current position across the technology stack, creating a "Canada Exposure Heatmap" that visualizes dependencies and vulnerabilities. It will provide a sequenced roadmap across three time horizons (0-12 months, 1-3 years, 3-7 years) with specific policy recommendations and investment priorities emphasizing public-private collaboration.
+
+The research includes outreach to business leaders, tech sector, telecommunications, hyperscalers, and experts in national security, public policy, and legal domains.
+
+CORE MESSAGE
+
+True digital sovereignty is not about building a fortress but about securing critical perimeters so Canada can confidently engage with the world on its own terms, ensuring its digital future is guided by Canadian values through strategic autonomy rather than autarky.

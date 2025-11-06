@@ -1,19 +1,24 @@
-Research Topic: Impact of Artificial Intelligence on Software Development Practices
 
-I am researching how artificial intelligence and machine learning technologies are transforming software development practices. Specifically, I am interested in:
+Summarize this source for a research project on Canada's sovereign AI strategy. Focus on information relevant to:
+Core Themes:
 
-1. AI-assisted code generation and completion tools (e.g., GitHub Copilot, ChatGPT for coding)
-2. Automated testing and bug detection using AI
-3. Impact on developer productivity and code quality
-4. Ethical considerations and potential risks
-5. How AI is changing the role of software developers
+Digital sovereignty and freedom from coercion
+AI infrastructure dependencies and vulnerabilities
+Geopolitical risks and economic resilience
 
-I am looking for:
-- Empirical studies measuring productivity impacts
-- Case studies from companies implementing AI tools
-- Analysis of code quality metrics before/after AI adoption
-- Developer perspectives and surveys
-- Discussion of limitations and challenges
-- Future predictions and trends
+Technical Layers:
+Physical infrastructure, compute hardware, cloud/network infrastructure, MLOps, foundation models, applications, and data governance
+Key Topics:
 
-Please focus on peer-reviewed research, industry reports, and authoritative technical analyses published in the last 3-5 years.
+Training vs. inference compute requirements
+Open-source vs. proprietary AI models
+Legal/regulatory issues (CLOUD Act, CUSMA, data localization)
+International approaches (US, China, EU, middle powers)
+Vendor lock-in and hyperscaler dominance
+Cybersecurity and supply chain vulnerabilities
+AI adoption barriers in Canada
+Public procurement and policy levers
+
+Classification:
+Note if the content relates to Tier 1 (national security), Tier 2 (critical services like healthcare/finance), or Tier 3 (general business) use cases.
+Include: key findings, data/statistics, policy recommendations, case studies, and technical solutions mentioned. Note the source's perspective and any biases.
