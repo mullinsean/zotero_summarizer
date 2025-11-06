@@ -18,6 +18,9 @@ import requests
 import markdown
 from anthropic import Anthropic
 
+# Import prompt templates
+from . import zr_prompts
+
 # Handle both relative and absolute imports
 try:
     from .zotero_base import ZoteroBaseProcessor
@@ -536,37 +539,14 @@ Project: {project_name}
             tags_list = '\n'.join([f"- {tag}" for tag in self.tags])
 
             # Use Haiku for cost-efficient general summaries
-            prompt = f"""You are analyzing sources for a research project.
-
-Project Overview:
-{self.project_overview}
-
-Available Tags:
-{tags_list}
-
-Source Metadata:
-- Title: {metadata.get('title', 'Untitled')}
-- Authors: {metadata.get('authors', 'Unknown')}
-- Date: {metadata.get('date', 'Unknown')}
-
-Source Content:
-{content[:50000]}
-
-Tasks:
-1. Provide a comprehensive summary of this source (2-3 paragraphs)
-2. Select all relevant tags from the provided list (only use tags from the list)
-3. Identify the document type (e.g., research paper, blog post, technical article, industry report, etc.)
-
-Format your response EXACTLY as follows:
-
-SUMMARY:
-<your summary here>
-
-TAGS:
-<comma-separated list of tags, e.g.: tag1, tag2, tag3>
-
-DOCUMENT_TYPE:
-<document type>"""
+            prompt = zr_prompts.general_summary_prompt(
+                project_overview=self.project_overview,
+                tags_list=tags_list,
+                title=metadata.get('title', 'Untitled'),
+                authors=metadata.get('authors', 'Unknown'),
+                date=metadata.get('date', 'Unknown'),
+                content=content[:50000]
+            )
 
             response = self.anthropic_client.messages.create(
                 model=self.haiku_model,
@@ -644,26 +624,15 @@ DOCUMENT_TYPE:
             tags_str = ', '.join(tags) if tags else 'None'
 
             # Use Haiku for fast, cheap relevance scoring
-            prompt = f"""Research Brief:
-{self.research_brief}
-
-Source Metadata:
-- Title: {metadata.get('title', 'Untitled')}
-- Authors: {metadata.get('authors', 'Unknown')}
-- Date: {metadata.get('date', 'Unknown')}
-- Type: {metadata.get('type', 'Unknown')}
-- Tags: {tags_str}
-
-Source Summary:
-{summary[:10000]}
-
-Rate the relevance of this source to the research brief on a scale of 0-10, where:
-- 0 = Completely irrelevant
-- 5 = Somewhat relevant, provides background or tangential information
-- 10 = Highly relevant, directly addresses the research question
-
-Consider the tags, metadata, and summary content when evaluating relevance.
-Provide ONLY a single number (0-10) as your response, nothing else."""
+            prompt = zr_prompts.relevance_evaluation_prompt(
+                research_brief=self.research_brief,
+                title=metadata.get('title', 'Untitled'),
+                authors=metadata.get('authors', 'Unknown'),
+                date=metadata.get('date', 'Unknown'),
+                doc_type=metadata.get('type', 'Unknown'),
+                tags=tags_str,
+                summary=summary[:10000]
+            )
 
             response = self.anthropic_client.messages.create(
                 model=self.haiku_model,
@@ -731,27 +700,12 @@ Provide ONLY a single number (0-10) as your response, nothing else."""
             item_title = item['data'].get('title', 'Untitled')
 
             # Use configured model (Haiku by default, Sonnet for production)
-            prompt = f"""Research Brief:
-{self.research_brief}
-
-Source Title: {item_title}
-Source Type: {content_type}
-
-Source Content:
-{content[:100000]}  # Limit to ~100K chars
-
-Please provide:
-
-1. **Summary** (2-3 paragraphs): A concise summary of this source focusing on aspects relevant to the research brief.
-
-2. **Relevance Explanation** (1 paragraph): Explain specifically why this source is relevant to the research brief and how it contributes to answering the research question.
-
-3. **Key Passages & Quotes**: Extract 3-5 key passages, quotes, or statistics from the source that are most relevant to the research brief. For each, provide:
-   - The exact quote or passage
-   - Brief context explaining its significance
-   - Location (page number, section, etc.) if available
-
-Format your response using clear markdown headings and structure."""
+            prompt = zr_prompts.targeted_summary_prompt(
+                research_brief=self.research_brief,
+                title=item_title,
+                content_type=content_type,
+                content=content[:100000]  # Limit to ~100K chars
+            )
 
             response = self.anthropic_client.messages.create(
                 model=self.summary_model,
