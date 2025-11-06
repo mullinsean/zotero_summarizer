@@ -1886,13 +1886,15 @@ Edit this note before running --query-summary"""
             print(f"   ❌ Failed to create: {self._get_research_brief_note_title()}")
 
         # Template 4: Project Configuration
-        config_content = self._get_default_config_template()
+        # Wrap in code block for proper formatting (monospace, preserved line breaks)
+        config_template = self._get_default_config_template()
+        config_content = f"```\n{config_template}\n```"
 
         config_key = self.create_standalone_note(
             subcollection_key,
             config_content,
             self._get_project_config_note_title(),
-            convert_markdown=False  # Plain text, not markdown
+            convert_markdown=True  # Convert to HTML for proper rendering
         )
 
         if config_key:
