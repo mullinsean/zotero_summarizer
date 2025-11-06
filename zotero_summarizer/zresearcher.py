@@ -84,7 +84,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         max_sources: int = 50,
         use_sonnet: bool = False,
         force_rebuild: bool = False,
-        max_workers: int = 10,
+        max_workers: int = 20,
         rate_limit_delay: float = 0.1,
         verbose: bool = False
     ):
@@ -2991,8 +2991,8 @@ Examples:
     parser.add_argument(
         '--max-workers',
         type=int,
-        default=10,
-        help='Number of concurrent threads for parallel LLM calls (default: 10). Increase for faster processing, decrease if hitting rate limits.'
+        default=20,
+        help='Number of concurrent threads for parallel LLM calls (default: 20). Increase for faster processing, decrease if hitting rate limits.'
     )
     parser.add_argument(
         '--rate-limit-delay',
