@@ -6,7 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Zotero Summarizer** is a Python tool that automates the extraction of HTML content from Zotero library items (web snapshots) and converts them to Markdown notes. It accesses both user and group Zotero libraries via the Zotero API, identifies HTML attachments, converts them to readable Markdown format, and creates notes attached to the original items.
 
-The tool now includes a **Research Assistant** feature that analyzes sources based on a research brief, ranks them by relevance, and generates targeted summaries with key quotes and statistics.
+The tool includes a **Research Assistant** feature that analyzes sources based on a research brief, ranks them by relevance, and generates targeted summaries with key quotes and statistics. The Research Assistant supports two workflows:
+
+- **Zotero-native workflow**: All configuration and outputs stored in Zotero (recommended for end-users)
+- **File-based workflow**: Configuration in text files, outputs as HTML files (useful for debugging)
 
 ## Package Manager
 
@@ -52,19 +55,43 @@ uv run python zotero_diagnose.py --group GROUP_ID
 uv run python summarize_sources.py --collection COLLECTION_KEY
 uv run python summarize_sources.py --verbose
 
-# Research Assistant - Two-phase workflow with project-aware summaries
-# Phase 1: Build general summaries (run once)
+# Research Assistant - Zotero-native workflow (RECOMMENDED)
+# All configuration and reports stored in Zotero
+
+# Step 0: List collections
 uv run python researcher.py --list-collections
+
+# Step 1: Initialize collection (creates template notes in Zotero)
+uv run python researcher.py --init-collection --collection COLLECTION_KEY
+
+# Step 2: Edit the three template notes in Zotero:
+#   - Project Overview (describe your research project)
+#   - Research Tags (one tag per line)
+#   - Research Brief (your research question)
+
+# Step 3: Build general summaries (loads config from Zotero)
+uv run python researcher.py --build-summaries --collection COLLECTION_KEY
+uv run python researcher.py --build-summaries --collection COLLECTION_KEY --force  # Rebuild existing
+
+# Step 4: Run query (loads brief from Zotero, stores report as note)
+uv run python researcher.py --query-summary --collection COLLECTION_KEY
+uv run python researcher.py --query-summary --collection COLLECTION_KEY --threshold 7
+uv run python researcher.py --query-summary --collection COLLECTION_KEY --use-sonnet  # High quality mode
+
+# Research Assistant - File-based workflow (for debugging)
+# Configuration from files, reports as HTML files
+
+# Phase 1: Build general summaries (provide files)
 uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
     --project-overview project_overview.txt --tags tags.txt
 uv run python researcher.py --build-summaries --collection COLLECTION_KEY \
     --project-overview project_overview.txt --tags tags.txt --force  # Rebuild existing
 
-# Phase 2: Query with research briefs (run multiple times)
+# Phase 2: Query with research briefs (provide brief file, output HTML)
 uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt
 uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --threshold 7
 uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --max-sources 100
-uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet  # High quality mode
+uv run python researcher.py --query --collection COLLECTION_KEY --brief research_brief.txt --use-sonnet
 ```
 
 ### Linting & Code Quality
@@ -125,7 +152,22 @@ Diagnostic tool for troubleshooting Zotero connections and library access. Provi
 
 ### Research Module: `zotero_summarizer/researcher.py`
 
-The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections using a **two-phase workflow**:
+The `ZoteroResearcher` class performs sophisticated research analysis on Zotero collections using a **two-phase workflow** with **dual-mode support**:
+
+**Architecture: Dual-Mode Support**
+
+The tool supports two workflows:
+
+1. **Zotero-native workflow** (RECOMMENDED):
+   - All configuration stored as notes in a "ZoteroResearcher" subcollection
+   - Research reports stored as Zotero notes (or HTML file if >1MB)
+   - No external files required
+   - Best for end-users working entirely within Zotero
+
+2. **File-based workflow**:
+   - Configuration from text files (project_overview.txt, tags.txt, research_brief.txt)
+   - Reports saved as HTML files
+   - Useful for debugging and batch processing
 
 **Architecture: Two-Phase Workflow**
 
@@ -136,48 +178,61 @@ The `ZoteroResearcher` class performs sophisticated research analysis on Zotero 
 - Assign relevant tags from user-provided list
 - Create structured "General Summary" notes in Zotero
 - Run once per collection, reuse across multiple queries
+- **Supports both modes**: loads config from Zotero notes OR from files
 
-**Phase 2 - Query (`--query`):**
+**Phase 2 - Query:**
+- **Zotero-native** (`--query-summary`): Loads brief from Zotero, stores report as note
+- **File-based** (`--query`): Loads brief from file, outputs HTML file
 - Answer specific research questions using pre-built summaries
 - Parse structured summaries with metadata and tags
 - Evaluate relevance using metadata, tags, and summary content
 - Rank sources by relevance score
 - Generate detailed targeted summaries for relevant sources
-- Output professional HTML report
+- Output professional HTML report (as note or file depending on mode)
 
 **Key Features:**
 - Two-phase workflow: build once, query multiple times
+- Dual-mode: Zotero-native (no files) or file-based (debugging)
 - Context-aware summaries informed by project overview
 - Tag-based categorization from user-defined list
 - Rich metadata extraction from Zotero API
 - Relevance evaluation using metadata + tags + summary
 - Professional HTML reports with metadata and tag badges
+- Smart storage: reports <1MB as notes, >1MB as files with stub notes
 - Cost-efficient: expensive summarization separate from cheap relevance checks
 
 **Core Methods:**
 
+*Initialization & Configuration:*
+- `init_collection()` - Initialize collection with ZoteroResearcher subcollection and template notes
+
 *Loaders & Extraction:*
-- `load_research_brief()` - Loads research brief/question from file
-- `load_project_overview()` - Loads project overview from file
-- `load_tags()` - Loads tag list from file (one per line)
+- `load_research_brief()` - Loads research brief/question from file (file-based mode)
+- `load_research_brief_from_zotero()` - Loads research brief from Zotero notes (Zotero-native mode)
+- `load_project_overview()` - Loads project overview from file (file-based mode)
+- `load_project_overview_from_zotero()` - Loads project overview from Zotero notes (Zotero-native mode)
+- `load_tags()` - Loads tag list from file (file-based mode)
+- `load_tags_from_zotero()` - Loads tags from Zotero notes (Zotero-native mode)
 - `extract_metadata()` - Extracts metadata from Zotero API
 - `get_source_content()` - Retrieves content with priority: Markdown Extract → HTML → PDF → URL
 - `extract_text_from_html()` - Trafilatura-based HTML extraction
 - `extract_text_from_pdf()` - PyMuPDF-based PDF extraction
 
 *Phase 1 - Build:*
-- `build_general_summaries()` - Main orchestration for Phase 1
+- `build_general_summaries()` - Main orchestration for Phase 1 (auto-detects mode)
 - `create_general_summary_with_tags()` - Generates summary with tags and document type
 - `format_general_summary_note()` - Creates structured note format
 - `has_general_summary()` - Checks for existing summary
 
 *Phase 2 - Query:*
-- `run_query()` - Main orchestration for Phase 2
+- `run_query()` - Main orchestration for Phase 2 (file-based mode, outputs HTML file)
+- `run_query_summary()` - Main orchestration for Phase 2 (Zotero-native mode, outputs note)
 - `parse_general_summary_note()` - Parses structured note into metadata/tags/summary
 - `evaluate_source_relevance()` - LLM-based relevance scoring with metadata + tags
 - `rank_sources()` - Sorts sources by relevance score (descending)
 - `generate_targeted_summary()` - Creates detailed research summary with quotes
-- `compile_research_html()` - Builds HTML report with metadata and tag badges
+- `compile_research_html()` - Builds HTML report and saves to file (file-based mode)
+- `_compile_research_html_string()` - Internal method to generate HTML string without saving
 
 **LLM Model Strategy:**
 - **Claude Haiku 4.5** for Phase 1 general summaries (cost-efficient)
@@ -208,27 +263,56 @@ Created: <timestamp>
 Project: <project name>
 ```
 
-**Phase 1 Workflow (Build Summaries):**
-1. Load project overview and tags from files
-2. For each source in collection:
+**Zotero-Native Workflow (RECOMMENDED):**
+
+*Initialization (run once per collection):*
+1. Run `--init-collection` to create ZoteroResearcher subcollection
+2. Creates three template notes:
+   - **Project Overview**: Describe research project and goals
+   - **Research Tags**: Tag list (one per line)
+   - **Research Brief**: Research question/brief
+3. Edit template notes in Zotero (remove [TODO: markers)
+
+*Phase 1 - Build Summaries:*
+1. Run `--build-summaries` (without file arguments)
+2. Load project overview and tags from Zotero notes
+3. For each source in collection:
    - Extract metadata from Zotero API
    - Get source content (HTML/PDF/URL)
    - Generate context-aware summary with LLM
    - Assign relevant tags from provided list
    - Identify document type (LLM)
    - Create structured "General Summary" note in Zotero
-3. Skip existing summaries unless `--force` flag used
+4. Skip existing summaries unless `--force` flag used
 
-**Phase 2 Workflow (Query):**
-1. Load research brief from file
-2. For each source in collection:
+*Phase 2 - Query Summary:*
+1. Run `--query-summary`
+2. Load research brief from Zotero notes
+3. For each source in collection:
    - Load and parse "General Summary" note
    - Extract metadata, tags, and summary
    - Evaluate relevance using metadata + tags + summary
    - If score ≥ threshold: add to relevant sources list
-3. Rank relevant sources by score
-4. Generate detailed targeted summaries with quotes
-5. Compile HTML report with metadata and tag badges
+4. Rank relevant sources by score
+5. Generate detailed targeted summaries with quotes
+6. Generate HTML report
+7. **Smart storage:**
+   - If report <1MB: Create full note in ZoteroResearcher subcollection
+   - If report >1MB: Save as HTML file + create stub note with file location
+
+**File-Based Workflow (for debugging):**
+
+*Phase 1 - Build Summaries:*
+1. Run `--build-summaries` with `--project-overview` and `--tags` files
+2. Load project overview and tags from files
+3. Process sources same as Zotero-native mode
+4. Create "General Summary" notes in Zotero
+
+*Phase 2 - Query:*
+1. Run `--query` with `--brief` file
+2. Load research brief from file
+3. Process sources same as Zotero-native mode
+4. Save HTML report to file (always, regardless of size)
 
 **Benefits of Two-Phase Approach:**
 - **Efficiency**: Build summaries once, query many times
@@ -238,20 +322,94 @@ Project: <project name>
 - **Flexibility**: Run multiple queries against same summary set
 - **Cost Optimization**: ~90% cost reduction by separating phases
 
+**Zotero-Native Configuration (Template Notes):**
+
+The `--init-collection` command creates a "ZoteroResearcher" subcollection with three template notes:
+
+1. **Project Overview** - Template structure:
+```
+[TODO: Replace this template with your project description]
+
+Describe your research project, goals, and key areas of interest.
+This context will inform the general summaries created for each source.
+
+Example:
+This project examines the impact of artificial intelligence on
+software development practices. Key areas include: code generation
+tools, automated testing, productivity metrics, and ethical
+considerations. The research will inform a technical report for
+software engineering managers.
+
+---
+Template created by ZoteroResearcher
+Edit this note before running --build-summaries
+```
+
+2. **Research Tags** - Template structure:
+```
+[TODO: Replace with your research tags, one per line]
+
+Example tags:
+artificial-intelligence
+software-development
+code-generation
+automated-testing
+productivity-metrics
+ethics
+
+---
+Template created by ZoteroResearcher
+Edit this note before running --build-summaries
+```
+
+3. **Research Brief** - Template structure:
+```
+[TODO: Replace this template with your research question]
+
+Describe the specific research question or brief you want to answer.
+This will be used to evaluate relevance of sources and generate targeted summaries.
+
+Example:
+What are the current challenges and best practices for integrating
+AI-powered code generation tools into enterprise software development
+workflows? Focus on adoption barriers, productivity impacts, and
+quality assurance approaches.
+
+---
+Template created by ZoteroResearcher
+Edit this note before running --query-summary
+```
+
+**Template Validation:**
+- The tool checks for `[TODO:` markers when loading configuration
+- If markers are found, it will refuse to run and prompt you to edit the notes
+- This ensures you don't accidentally run with placeholder templates
+
 **Inherits from:** `ZoteroBaseProcessor` (shares collection/attachment/note handling with other modules)
 
 ### Base Module: `zotero_summarizer/zotero_base.py`
 
 The `ZoteroBaseProcessor` class provides shared functionality for all processors:
 
-**Shared Methods:**
+**Collection & Item Management:**
 - `list_collections()` / `print_collections()` - Collection management
 - `get_collection_items()` - Retrieves top-level items from collection
 - `get_item_attachments()` - Fetches child attachments
+- `get_subcollection()` - Get subcollection by name within parent collection
+- `create_subcollection()` - Create subcollection inside parent collection
+
+**Attachment & Content:**
 - `is_html_attachment()` / `is_pdf_attachment()` - Content type detection
 - `download_attachment()` - Downloads attachment content from Zotero
-- `create_note()` - Creates notes in Zotero with markdown conversion
+
+**Note Management:**
+- `create_note()` - Creates child note attached to item (with markdown conversion)
+- `create_standalone_note()` - Creates standalone note in collection (with markdown conversion)
+- `get_collection_notes()` - Get all standalone notes in collection
 - `has_note_with_prefix()` / `get_note_with_prefix()` - Note checking and retrieval
+- `get_note_title_from_html()` - Extract title from note HTML (first h1 or first line)
+- `extract_text_from_note_html()` - Extract plain text from note HTML
+- `markdown_to_html()` - Convert markdown to HTML for Zotero notes
 
 **Used by:**
 - `ZoteroSourceSummarizer` (summarize_sources.py)
