@@ -1688,7 +1688,7 @@ Edit this note before running --query-summary"""
         print(f"   2. Edit 'Project Overview' with your project description")
         print(f"   3. Edit 'Research Tags' with your tag list")
         print(f"   4. Edit 'Research Brief' with your research question")
-        print(f"   5. Run: python researcher.py --build-summaries --collection {collection_key}")
+        print(f"   5. Run: python zresearcher.py --build-summaries --collection {collection_key}")
         print(f"{'='*80}\n")
 
         return True
@@ -2707,26 +2707,26 @@ def main():
         epilog="""
 Examples:
   # List collections
-  python researcher.py --list-collections
+  python zresearcher.py --list-collections
 
   # Initialize collection for Zotero-native workflow
-  python researcher.py --init-collection --collection KEY
+  python zresearcher.py --init-collection --collection KEY
 
   # Phase 1: Build general summaries (Zotero-native mode)
-  python researcher.py --build-summaries --collection KEY
+  python zresearcher.py --build-summaries --collection KEY
 
   # Phase 1: Build general summaries (file-based mode)
-  python researcher.py --build-summaries --collection KEY \\
+  python zresearcher.py --build-summaries --collection KEY \\
       --project-overview overview.txt --tags tags.txt
 
   # Phase 2: Query with research brief (Zotero-native mode)
-  python researcher.py --query-summary --collection KEY
+  python zresearcher.py --query-summary --collection KEY
 
   # Phase 2: Query with research brief (file-based mode)
-  python researcher.py --query --collection KEY --brief brief.txt
+  python zresearcher.py --query --collection KEY --brief brief.txt
 
   # Rebuild all summaries
-  python researcher.py --build-summaries --collection KEY --force
+  python zresearcher.py --build-summaries --collection KEY --force
         """
     )
 
@@ -2882,7 +2882,7 @@ Examples:
     if args.init_collection:
         if not collection_key:
             print("Error: --collection required for --init-collection")
-            print("Example: python researcher.py --init-collection --collection ABC123")
+            print("Example: python zresearcher.py --init-collection --collection ABC123")
             return
 
         researcher.init_collection(collection_key, force=args.force)
@@ -2940,7 +2940,7 @@ Examples:
     if args.query:
         if not args.brief:
             print("Error: --brief is required for --query mode")
-            print("Example: python researcher.py --query --collection KEY --brief brief.txt")
+            print("Example: python zresearcher.py --query --collection KEY --brief brief.txt")
             print("\nNote: You must run --build-summaries first to create general summaries.")
             return
 
