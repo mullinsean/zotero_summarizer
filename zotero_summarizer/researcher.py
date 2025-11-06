@@ -18,8 +18,11 @@ import requests
 import markdown
 from anthropic import Anthropic
 
-# Import prompt templates
-from . import zr_prompts
+# Import prompt templates - handle both relative and absolute imports
+try:
+    from . import zr_prompts
+except ImportError:
+    import zr_prompts
 
 # Handle both relative and absolute imports
 try:
