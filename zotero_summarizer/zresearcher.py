@@ -33,6 +33,40 @@ except ImportError:
     from zotero_base import ZoteroBaseProcessor
 
 
+def validate_project_name(name: str) -> str:
+    """
+    Validate and sanitize project name.
+
+    Args:
+        name: Raw project name from user
+
+    Returns:
+        Validated project name
+
+    Raises:
+        ValueError: If project name is invalid
+    """
+    if not name:
+        raise ValueError("Project name cannot be empty")
+
+    name = name.strip()
+
+    if not name:
+        raise ValueError("Project name cannot be empty or whitespace only")
+
+    if len(name) > 50:
+        raise ValueError(f"Project name too long: '{name}' (max 50 characters)")
+
+    # Check for problematic characters
+    # Zotero handles most characters fine, but let's be cautious with special chars
+    problematic_chars = ['【', '】', '\n', '\r', '\t']
+    for char in problematic_chars:
+        if char in name:
+            raise ValueError(f"Project name contains invalid character: '{char}'")
+
+    return name
+
+
 class ZoteroResearcher(ZoteroBaseProcessor):
     """Research assistant for analyzing Zotero collections based on research briefs."""
 
@@ -42,6 +76,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         library_type: str,
         api_key: str,
         anthropic_api_key: str,
+        project_name: str = None,
         research_brief: str = "",
         project_overview: str = "",
         tags: List[str] = None,
@@ -61,6 +96,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
             anthropic_api_key: Anthropic API key for Claude
+            project_name: Name of the research project (used for organizing subcollections and notes)
             research_brief: The research brief/question text (for query phase)
             project_overview: The project overview text (for build phase)
             tags: List of tags for categorization (for build phase)
@@ -74,6 +110,9 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         """
         # Initialize base class
         super().__init__(library_id, library_type, api_key, verbose)
+
+        # Validate and store project name
+        self.project_name = validate_project_name(project_name) if project_name else None
 
         # Researcher-specific configuration
         self.anthropic_client = Anthropic(api_key=anthropic_api_key)
@@ -102,6 +141,36 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             default_model=self.haiku_model,
             verbose=verbose
         )
+
+    def _get_subcollection_name(self) -> str:
+        """Get project-specific subcollection name."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【ZResearcher: {self.project_name}】"
+
+    def _get_project_overview_note_title(self) -> str:
+        """Get project-specific overview note title."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【Project Overview: {self.project_name}】"
+
+    def _get_research_tags_note_title(self) -> str:
+        """Get project-specific tags note title."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【Research Tags: {self.project_name}】"
+
+    def _get_research_brief_note_title(self) -> str:
+        """Get project-specific brief note title."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【Research Brief: {self.project_name}】"
+
+    def _get_summary_note_prefix(self) -> str:
+        """Get project-specific summary note prefix."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【ZResearcher Summary: {self.project_name}】:"
 
     def load_research_brief(self, brief_file: str) -> str:
         """
@@ -399,7 +468,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         Returns:
             True if a general summary exists
         """
-        return self.has_note_with_prefix(item_key, '【ZResearcher Summary】:')
+        return self.has_note_with_prefix(item_key, '【ZResearcher Summary】')
 
     def format_general_summary_note(
         self,
@@ -598,7 +667,7 @@ Project: {project_name}
                     document_type
                 )
 
-                note_title = f"【ZResearcher Summary】: {metadata.get('title', 'Untitled')}"
+                note_title = f"【ZResearcher Summary】 {metadata.get('title', 'Untitled')}"
                 if self.create_note(item_key, note_content, note_title, convert_markdown=True):
                     return {
                         'summary': summary,
@@ -942,7 +1011,7 @@ Project: {project_name}
                 if self.force_rebuild and item_data.get('has_existing_summary'):
                     if self.verbose:
                         print(f"  🗑️  Deleting existing summary...")
-                    self.delete_note_with_prefix(item_key, '【ZResearcher Summary】:')
+                    self.delete_note_with_prefix(item_key, '【ZResearcher Summary】')
 
                 # Format and create note
                 note_content = self.format_general_summary_note(
@@ -955,7 +1024,7 @@ Project: {project_name}
                 success = self.create_note(
                     parent_key=item_key,
                     content=note_content,
-                    title='【ZResearcher Summary】:',
+                    title='【ZResearcher Summary】',
                     convert_markdown=True
                 )
 
@@ -1760,7 +1829,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】:')
+            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】')
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
@@ -2073,7 +2142,7 @@ Edit this note before running --query-summary"""
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】:')
+            summary_note = self.get_note_with_prefix(item_key, '【ZResearcher Summary】')
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
@@ -2718,24 +2787,27 @@ Examples:
   # List collections
   python zresearcher.py --list-collections
 
+  # List projects in a collection
+  python zresearcher.py --list-projects --collection KEY
+
   # Initialize collection for Zotero-native workflow
-  python zresearcher.py --init-collection --collection KEY
+  python zresearcher.py --init-collection --collection KEY --project "AI Productivity"
 
   # Phase 1: Build general summaries (Zotero-native mode)
-  python zresearcher.py --build-summaries --collection KEY
+  python zresearcher.py --build-summaries --collection KEY --project "AI Productivity"
 
   # Phase 1: Build general summaries (file-based mode)
-  python zresearcher.py --build-summaries --collection KEY \\
+  python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" \\
       --project-overview overview.txt --tags tags.txt
 
   # Phase 2: Query with research brief (Zotero-native mode)
-  python zresearcher.py --query-summary --collection KEY
+  python zresearcher.py --query-summary --collection KEY --project "AI Productivity"
 
   # Phase 2: Query with research brief (file-based mode)
-  python zresearcher.py --query --collection KEY --brief brief.txt
+  python zresearcher.py --query --collection KEY --project "AI Productivity" --brief brief.txt
 
-  # Rebuild all summaries
-  python zresearcher.py --build-summaries --collection KEY --force
+  # Rebuild all summaries for a project
+  python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" --force
         """
     )
 
@@ -2747,9 +2819,14 @@ Examples:
         help='List all available collections and exit'
     )
     mode_group.add_argument(
+        '--list-projects',
+        action='store_true',
+        help='List all ZResearcher projects in a collection'
+    )
+    mode_group.add_argument(
         '--init-collection',
         action='store_true',
-        help='Initialize collection with 【ZResearcher】 subcollection and templates'
+        help='Initialize collection with project-specific 【ZResearcher: PROJECT】 subcollection and templates'
     )
     mode_group.add_argument(
         '--build-summaries',
@@ -2772,6 +2849,12 @@ Examples:
         '--collection',
         type=str,
         help='Collection key to process (overrides ZOTERO_COLLECTION_KEY env var)'
+    )
+    parser.add_argument(
+        '--project',
+        type=str,
+        required=False,
+        help='Project name for organizing research (required for most operations). Each project has its own subcollection and configuration.'
     )
     parser.add_argument(
         '--max-sources',
@@ -2843,7 +2926,7 @@ Examples:
     args = parser.parse_args()
 
     # Determine mode (default to query for backward compatibility)
-    if not args.list_collections and not args.init_collection and not args.build_summaries and not args.query_summary and not args.query:
+    if not args.list_collections and not args.list_projects and not args.init_collection and not args.build_summaries and not args.query_summary and not args.query:
         args.query = True
 
     # Get configuration from environment
@@ -2864,12 +2947,34 @@ Examples:
         print("Please set ANTHROPIC_API_KEY in your .env file")
         return
 
+    # Validate project name is provided for operations that require it
+    operations_requiring_project = [
+        args.init_collection,
+        args.build_summaries,
+        args.query,
+        args.query_summary
+    ]
+    if any(operations_requiring_project) and not args.project:
+        print("Error: --project is required for this operation")
+        print("Example: python zresearcher.py --init-collection --collection KEY --project \"AI Productivity\"")
+        return
+
+    # Validate project name format if provided
+    project_name = None
+    if args.project:
+        try:
+            project_name = validate_project_name(args.project)
+        except ValueError as e:
+            print(f"Error: Invalid project name: {e}")
+            return
+
     # Initialize researcher
     researcher = ZoteroResearcher(
         library_id,
         library_type,
         zotero_api_key,
         anthropic_api_key,
+        project_name=project_name,
         research_brief="",
         project_overview="",
         tags=[],
