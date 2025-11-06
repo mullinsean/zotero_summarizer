@@ -71,8 +71,8 @@ class ZoteroResearcher(ZoteroBaseProcessor):
     """Research assistant for analyzing Zotero collections based on research briefs."""
 
     # Content truncation limits for LLM processing
-    GENERAL_SUMMARY_CHAR_LIMIT = 50000   # Phase 1: General summaries
-    TARGETED_SUMMARY_CHAR_LIMIT = 100000  # Phase 2: Targeted summaries
+    GENERAL_SUMMARY_CHAR_LIMIT = 500000   # Phase 1: General summaries
+    TARGETED_SUMMARY_CHAR_LIMIT = 500000  # Phase 2: Targeted summaries
 
     def __init__(
         self,
@@ -81,15 +81,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
         api_key: str,
         anthropic_api_key: str,
         project_name: str = None,
-        research_brief: str = "",
-        project_overview: str = "",
-        tags: List[str] = None,
-        relevance_threshold: int = 6,
-        max_sources: int = 50,
-        use_sonnet: bool = False,
         force_rebuild: bool = False,
-        max_workers: int = 20,
-        rate_limit_delay: float = 0.1,
         verbose: bool = False
     ):
         """
@@ -101,15 +93,7 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             api_key: Your Zotero API key
             anthropic_api_key: Anthropic API key for Claude
             project_name: Name of the research project (used for organizing subcollections and notes)
-            research_brief: The research brief/question text (for query phase)
-            project_overview: The project overview text (for build phase)
-            tags: List of tags for categorization (for build phase)
-            relevance_threshold: Minimum relevance score (0-10) to include source (default: 6)
-            max_sources: Maximum number of sources to process (default: 50)
-            use_sonnet: If True, use Sonnet for detailed summaries (higher quality, higher cost) (default: False)
             force_rebuild: If True, force rebuild of existing general summaries (default: False)
-            max_workers: Number of concurrent threads for parallel LLM calls (default: 10)
-            rate_limit_delay: Delay in seconds between parallel request submissions (default: 0.1)
             verbose: If True, show detailed information about all child items
         """
         # Initialize base class
@@ -120,24 +104,32 @@ class ZoteroResearcher(ZoteroBaseProcessor):
 
         # Researcher-specific configuration
         self.anthropic_client = Anthropic(api_key=anthropic_api_key)
-        self.research_brief = research_brief
-        self.project_overview = project_overview
-        self.tags = tags or []
-        self.relevance_threshold = relevance_threshold
-        self.max_sources = max_sources
-        self.use_sonnet = use_sonnet
-        self.force_rebuild = force_rebuild
-        self.max_workers = max_workers
-        self.rate_limit_delay = rate_limit_delay
 
-        # Use Haiku for quick tasks (relevance, general summaries)
+        # Operational flags
+        self.force_rebuild = force_rebuild
+
+        # Content loaded from Zotero (populated during operations)
+        self.research_brief = ""
+        self.project_overview = ""
+        self.tags = []
+
+        # Initialize configurable parameters with defaults
+        # (These can be overridden by project config file)
+        self.max_workers = 20
+        self.rate_limit_delay = 0.1
+        self.general_summary_char_limit = self.GENERAL_SUMMARY_CHAR_LIMIT
+        self.targeted_summary_char_limit = self.TARGETED_SUMMARY_CHAR_LIMIT
+        self.relevance_threshold = 6
+        self.max_sources = 50
+        self.use_sonnet = False
+
+        # LLM model configuration
         self.haiku_model = "claude-haiku-4-5-20251001"
-        # Sonnet for production-quality detailed analysis
         self.sonnet_model = "claude-sonnet-4-5-20250929"
 
         # Default to Haiku for detailed summaries (cost-efficient)
-        # Use Sonnet only when use_sonnet=True (production mode)
-        self.summary_model = self.sonnet_model if use_sonnet else self.haiku_model
+        # Use Sonnet only when use_sonnet=True in config (production mode)
+        self.summary_model = self.haiku_model
 
         # Initialize centralized LLM client for all API calls
         self.llm_client = ZRLLMClient(
@@ -170,11 +162,58 @@ class ZoteroResearcher(ZoteroBaseProcessor):
             raise ValueError("Project name is required but not set")
         return f"【Research Brief: {self.project_name}】"
 
+    def _get_project_config_note_title(self) -> str:
+        """Get project-specific config note title."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【Project Config: {self.project_name}】"
+
     def _get_summary_note_prefix(self) -> str:
         """Get project-specific summary note prefix (used as note title/heading)."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
         return f"【ZResearcher Summary: {self.project_name}】"
+
+    def _get_default_config_template(self) -> str:
+        """Get the default project configuration template."""
+        return """# ZResearcher Project Configuration
+# Edit values below to customize this project's behavior
+# Lines starting with # are comments and will be ignored
+
+# ============================================================
+# Performance Settings
+# ============================================================
+max_workers=20
+rate_limit_delay=0.1
+
+# ============================================================
+# Content Truncation Limits (characters)
+# ============================================================
+general_summary_char_limit=500000
+targeted_summary_char_limit=500000
+
+# ============================================================
+# Relevance & Filtering
+# ============================================================
+relevance_threshold=6
+max_sources=50
+
+# ============================================================
+# LLM Model Configuration
+# ============================================================
+use_sonnet=false
+haiku_model=claude-haiku-4-5
+sonnet_model=claude-sonnet-4-5
+
+# ============================================================
+# Notes:
+# - Boolean values: true/false (case insensitive)
+# - Integer values: whole numbers
+# - Float values: decimal numbers (use . not ,)
+# - Changes take effect on next build/query operation
+# - Restart not required - just re-run the command
+# ============================================================
+"""
 
     def load_research_brief(self, brief_file: str) -> str:
         """
@@ -1637,6 +1676,148 @@ Project: {self.project_name}
             f"Run --init-collection --project \"{self.project_name}\" first, then edit the {note_title} note."
         )
 
+    def load_project_config_from_zotero(self, collection_key: str) -> Dict[str, Any]:
+        """
+        Load and parse project configuration from Zotero note.
+
+        Args:
+            collection_key: Parent collection key
+
+        Returns:
+            Dict with parsed configuration values (empty dict if not found)
+
+        Raises:
+            FileNotFoundError: If subcollection or config note not found
+        """
+        subcollection_name = self._get_subcollection_name()
+        note_title = self._get_project_config_note_title()
+
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            raise FileNotFoundError(
+                f"{subcollection_name} subcollection not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
+            )
+
+        # Get all notes in subcollection
+        notes = self.get_collection_notes(subcollection_key)
+
+        for note in notes:
+            title = self.get_note_title_from_html(note['data']['note'])
+            if note_title in title:
+                content = self.extract_text_from_note_html(note['data']['note'])
+
+                # Parse key=value pairs
+                config = {}
+                for line in content.split('\n'):
+                    line = line.strip()
+
+                    # Skip comments and empty lines
+                    if not line or line.startswith('#'):
+                        continue
+
+                    # Parse key=value
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+
+                        # Type conversion
+                        if value.lower() in ['true', 'false']:
+                            config[key] = value.lower() == 'true'
+                        elif value.isdigit():
+                            config[key] = int(value)
+                        elif '.' in value:
+                            try:
+                                config[key] = float(value)
+                            except ValueError:
+                                config[key] = value  # Keep as string
+                        else:
+                            config[key] = value
+
+                return config
+
+        raise FileNotFoundError(
+            f"{note_title} not found in {subcollection_name} subcollection. "
+            f"Run --init-collection --project \"{self.project_name}\" first."
+        )
+
+    def apply_project_config(self, config: Dict[str, Any]):
+        """
+        Apply loaded configuration to instance attributes with validation.
+
+        Args:
+            config: Dict of configuration key-value pairs
+        """
+        # Validation rules
+        def validate_int_range(value, min_val, max_val, name):
+            if not isinstance(value, int):
+                if self.verbose:
+                    print(f"  ⚠️  Invalid {name}: must be integer, got {type(value).__name__}")
+                return False
+            if not (min_val <= value <= max_val):
+                if self.verbose:
+                    print(f"  ⚠️  Invalid {name}: {value} (must be {min_val}-{max_val})")
+                return False
+            return True
+
+        def validate_float_range(value, min_val, max_val, name):
+            if not isinstance(value, (int, float)):
+                if self.verbose:
+                    print(f"  ⚠️  Invalid {name}: must be number, got {type(value).__name__}")
+                return False
+            if not (min_val <= value <= max_val):
+                if self.verbose:
+                    print(f"  ⚠️  Invalid {name}: {value} (must be {min_val}-{max_val})")
+                return False
+            return True
+
+        # Apply each configuration value
+        if 'max_workers' in config:
+            if validate_int_range(config['max_workers'], 1, 50, 'max_workers'):
+                self.max_workers = config['max_workers']
+
+        if 'rate_limit_delay' in config:
+            if validate_float_range(config['rate_limit_delay'], 0.0, 10.0, 'rate_limit_delay'):
+                self.rate_limit_delay = config['rate_limit_delay']
+
+        if 'general_summary_char_limit' in config:
+            if validate_int_range(config['general_summary_char_limit'], 1000, 1000000, 'general_summary_char_limit'):
+                self.general_summary_char_limit = config['general_summary_char_limit']
+
+        if 'targeted_summary_char_limit' in config:
+            if validate_int_range(config['targeted_summary_char_limit'], 1000, 1000000, 'targeted_summary_char_limit'):
+                self.targeted_summary_char_limit = config['targeted_summary_char_limit']
+
+        if 'relevance_threshold' in config:
+            if validate_int_range(config['relevance_threshold'], 0, 10, 'relevance_threshold'):
+                self.relevance_threshold = config['relevance_threshold']
+
+        if 'max_sources' in config:
+            if validate_int_range(config['max_sources'], 1, 1000, 'max_sources'):
+                self.max_sources = config['max_sources']
+
+        if 'use_sonnet' in config:
+            if isinstance(config['use_sonnet'], bool):
+                self.use_sonnet = config['use_sonnet']
+                # Update summary model based on use_sonnet
+                self.summary_model = self.sonnet_model if self.use_sonnet else self.haiku_model
+            elif self.verbose:
+                print(f"  ⚠️  Invalid use_sonnet: must be true/false, got {config['use_sonnet']}")
+
+        if 'haiku_model' in config:
+            if isinstance(config['haiku_model'], str) and config['haiku_model'].startswith('claude-'):
+                self.haiku_model = config['haiku_model']
+            elif self.verbose:
+                print(f"  ⚠️  Invalid haiku_model: must start with 'claude-'")
+
+        if 'sonnet_model' in config:
+            if isinstance(config['sonnet_model'], str) and config['sonnet_model'].startswith('claude-'):
+                self.sonnet_model = config['sonnet_model']
+            elif self.verbose:
+                print(f"  ⚠️  Invalid sonnet_model: must start with 'claude-'")
+
     def init_collection(self, collection_key: str, force: bool = False) -> bool:
         """
         Initialize a collection for use with ZoteroResearcher.
@@ -1780,6 +1961,21 @@ Edit this note before running --query-summary"""
         else:
             print(f"   ❌ Failed to create: {self._get_research_brief_note_title()}")
 
+        # Template 4: Project Configuration
+        config_content = self._get_default_config_template()
+
+        config_key = self.create_standalone_note(
+            subcollection_key,
+            config_content,
+            self._get_project_config_note_title(),
+            convert_markdown=False  # Plain text, not markdown
+        )
+
+        if config_key:
+            print(f"   ✅ Created: {self._get_project_config_note_title()}")
+        else:
+            print(f"   ❌ Failed to create: {self._get_project_config_note_title()}")
+
         # Final output
         print(f"\n{'='*80}")
         print(f"✅ Project Initialized Successfully")
@@ -1788,13 +1984,15 @@ Edit this note before running --query-summary"""
         print(f"Configuration templates created:")
         print(f"   - {self._get_project_overview_note_title()} (edit before building summaries)")
         print(f"   - {self._get_research_tags_note_title()} (edit before building summaries)")
-        print(f"   - {self._get_research_brief_note_title()} (edit before running queries)\n")
+        print(f"   - {self._get_research_brief_note_title()} (edit before running queries)")
+        print(f"   - {self._get_project_config_note_title()} (optional: customize project settings)\n")
         print(f"Next steps:")
         print(f"   1. Open the '{subcollection_name}' subcollection in Zotero")
         print(f"   2. Edit '{self._get_project_overview_note_title()}' with your project description")
         print(f"   3. Edit '{self._get_research_tags_note_title()}' with your tag list")
         print(f"   4. Edit '{self._get_research_brief_note_title()}' with your research question")
-        print(f"   5. Run: python zresearcher.py --build-summaries --collection {collection_key} --project \"{self.project_name}\"")
+        print(f"   5. (Optional) Edit '{self._get_project_config_note_title()}' to customize settings")
+        print(f"   6. Run: python zresearcher.py --build-summaries --collection {collection_key} --project \"{self.project_name}\"")
         print(f"{'='*80}\n")
 
         return True
