@@ -795,43 +795,39 @@ Project: {self.project_name}
         """
         Phase 1: Build general summaries for all sources in a collection.
 
-        Supports two modes:
-        - File-based: project_overview and tags already loaded from files
-        - Zotero-native: loads project_overview and tags from Zotero subcollection
+        Loads project configuration, project overview, and tags from Zotero subcollection.
 
         Args:
             collection_key: The Zotero collection key to process
         """
         start_time = time.time()
 
-        # Detect mode: if project_overview and tags are empty, try loading from Zotero
-        if not self.project_overview and not self.tags:
-            print(f"\n📋 No project overview or tags provided via files")
-            print(f"   Attempting to load from {self._get_subcollection_name()} subcollection...\n")
+        # Load project configuration from Zotero
+        try:
+            config = self.load_project_config_from_zotero(collection_key)
+            self.apply_project_config(config)
+            if self.verbose:
+                print(f"✅ Loaded project configuration from Zotero")
+        except FileNotFoundError as e:
+            if self.verbose:
+                print(f"⚠️  Project config not found, using defaults: {e}")
+        except Exception as e:
+            print(f"⚠️  Error loading project config, using defaults: {e}")
 
-            try:
-                self.project_overview = self.load_project_overview_from_zotero(collection_key)
-                print(f"✅ Loaded project overview from Zotero ({len(self.project_overview)} characters)")
+        # Load project overview and tags from Zotero
+        print(f"\n📋 Loading project data from {self._get_subcollection_name()} subcollection...\n")
 
-                self.tags = self.load_tags_from_zotero(collection_key)
-                print(f"✅ Loaded {len(self.tags)} tags from Zotero")
-                print(f"   Tags: {', '.join(self.tags[:5])}{', ...' if len(self.tags) > 5 else ''}\n")
+        try:
+            self.project_overview = self.load_project_overview_from_zotero(collection_key)
+            print(f"✅ Loaded project overview from Zotero ({len(self.project_overview)} characters)")
 
-            except (FileNotFoundError, ValueError) as e:
-                print(f"❌ Error loading configuration from Zotero: {e}")
-                print(f"\nOptions:")
-                print(f"   1. Run --init-collection first to create configuration notes")
-                print(f"   2. Provide files: --project-overview FILE --tags FILE\n")
-                return
+            self.tags = self.load_tags_from_zotero(collection_key)
+            print(f"✅ Loaded {len(self.tags)} tags from Zotero")
+            print(f"   Tags: {', '.join(self.tags[:5])}{', ...' if len(self.tags) > 5 else ''}\n")
 
-        # Validate configuration
-        if not self.project_overview or not self.tags:
-            print(f"❌ Missing configuration:")
-            if not self.project_overview:
-                print(f"   - Project overview required")
-            if not self.tags:
-                print(f"   - Tags required")
-            print(f"\nProvide via files (--project-overview, --tags) or Zotero notes (--init-collection)")
+        except (FileNotFoundError, ValueError) as e:
+            print(f"❌ Error loading project data from Zotero: {e}")
+            print(f"\nRun --init-collection first to create project configuration and templates.\n")
             return
 
         print(f"\n{'='*80}")
@@ -1996,10 +1992,10 @@ Edit this note before running --query-summary"""
 
     def run_query_summary(self, collection_key: str) -> Optional[str]:
         """
-        Phase 2 (Zotero-native): Query sources based on research brief from Zotero notes.
+        Phase 2: Query sources based on research brief from Zotero notes.
 
-        Loads research brief from project-specific subcollection, runs query,
-        and stores report as a Zotero note (or HTML file if >1MB).
+        Loads project configuration and research brief from Zotero subcollection,
+        runs query, and stores report as a Zotero note (or HTML file if >1MB).
 
         Args:
             collection_key: The Zotero collection key to analyze
@@ -2009,8 +2005,20 @@ Edit this note before running --query-summary"""
         """
         start_time = time.time()
 
+        # Load project configuration from Zotero
+        try:
+            config = self.load_project_config_from_zotero(collection_key)
+            self.apply_project_config(config)
+            if self.verbose:
+                print(f"✅ Loaded project configuration from Zotero")
+        except FileNotFoundError as e:
+            if self.verbose:
+                print(f"⚠️  Project config not found, using defaults: {e}")
+        except Exception as e:
+            print(f"⚠️  Error loading project config, using defaults: {e}")
+
         print(f"\n{'='*80}")
-        print(f"Research Query Summary (Zotero-native mode)")
+        print(f"Research Query Summary")
         print(f"{'='*80}\n")
 
         # Load research brief from Zotero
@@ -2024,8 +2032,7 @@ Edit this note before running --query-summary"""
             print(f"❌ Error loading research brief from Zotero: {e}")
             print(f"\nOptions:")
             print(f"   1. Run --init-collection --project \"{self.project_name}\" first")
-            print(f"   2. Edit the {self._get_research_brief_note_title()} note in {self._get_subcollection_name()}")
-            print(f"   3. Use file-based mode: --query --collection KEY --project \"{self.project_name}\" --brief FILE\n")
+            print(f"   2. Edit the {self._get_research_brief_note_title()} note in {self._get_subcollection_name()}\n")
             return None
 
         # Run the query using existing logic
