@@ -2732,21 +2732,14 @@ Examples:
   # List projects in a collection
   python zresearcher.py --list-projects --collection KEY
 
-  # Initialize collection for Zotero-native workflow
+  # Initialize collection for a new project
   python zresearcher.py --init-collection --collection KEY --project "AI Productivity"
 
-  # Phase 1: Build general summaries (Zotero-native mode)
+  # Phase 1: Build general summaries
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity"
 
-  # Phase 1: Build general summaries (file-based mode)
-  python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" \\
-      --project-overview overview.txt --tags tags.txt
-
-  # Phase 2: Query with research brief (Zotero-native mode)
+  # Phase 2: Query with research brief
   python zresearcher.py --query-summary --collection KEY --project "AI Productivity"
-
-  # Phase 2: Query with research brief (file-based mode)
-  python zresearcher.py --query --collection KEY --project "AI Productivity" --brief brief.txt
 
   # Rebuild all summaries for a project
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" --force
@@ -2778,12 +2771,7 @@ Examples:
     mode_group.add_argument(
         '--query-summary',
         action='store_true',
-        help='Phase 2: Query sources using research brief from Zotero notes (Zotero-native mode)'
-    )
-    mode_group.add_argument(
-        '--query',
-        action='store_true',
-        help='Phase 2: Query sources based on research brief from file (file-based mode, default if no mode specified)'
+        help='Phase 2: Query sources using research brief from Zotero notes'
     )
 
     # Common arguments
@@ -2799,12 +2787,6 @@ Examples:
         help='Project name for organizing research (required for most operations). Each project has its own subcollection and configuration.'
     )
     parser.add_argument(
-        '--max-sources',
-        type=int,
-        default=50,
-        help='Maximum number of sources to process (default: 50)'
-    )
-    parser.add_argument(
         '--verbose',
         '-v',
         action='store_true',
@@ -2813,63 +2795,13 @@ Examples:
 
     # Phase 1 (build) arguments
     parser.add_argument(
-        '--project-overview',
-        type=str,
-        help='[Build] Path to project overview text file (file-based mode). If omitted, loads from Zotero notes (Zotero-native mode)'
-    )
-    parser.add_argument(
-        '--tags',
-        type=str,
-        help='[Build] Path to tags text file (file-based mode). If omitted, loads from Zotero notes (Zotero-native mode)'
-    )
-    parser.add_argument(
         '--force',
         action='store_true',
         help='[Build] Force rebuild of existing summaries'
     )
 
-    # Phase 2 (query) arguments
-    parser.add_argument(
-        '--brief',
-        type=str,
-        help='[Query] Path to research brief text file'
-    )
-    parser.add_argument(
-        '--threshold',
-        type=int,
-        default=6,
-        help='[Query] Relevance threshold 0-10 (default: 6)'
-    )
-    parser.add_argument(
-        '--output',
-        type=str,
-        help='[Query] Output HTML file path (default: auto-generated)'
-    )
-    parser.add_argument(
-        '--use-sonnet',
-        action='store_true',
-        help='[Query] Use Sonnet for detailed summaries (higher quality, higher cost). Default: Haiku (cost-efficient)'
-    )
-
-    # Performance tuning arguments
-    parser.add_argument(
-        '--max-workers',
-        type=int,
-        default=20,
-        help='Number of concurrent threads for parallel LLM calls (default: 20). Increase for faster processing, decrease if hitting rate limits.'
-    )
-    parser.add_argument(
-        '--rate-limit-delay',
-        type=float,
-        default=0.1,
-        help='Delay in seconds between parallel request submissions (default: 0.1). Increase if hitting Anthropic rate limits.'
-    )
 
     args = parser.parse_args()
-
-    # Determine mode (default to query for backward compatibility)
-    if not args.list_collections and not args.list_projects and not args.init_collection and not args.build_summaries and not args.query_summary and not args.query:
-        args.query = True
 
     # Get configuration from environment
     library_id = os.getenv('ZOTERO_LIBRARY_ID')
@@ -2893,7 +2825,6 @@ Examples:
     operations_requiring_project = [
         args.init_collection,
         args.build_summaries,
-        args.query,
         args.query_summary
     ]
     if any(operations_requiring_project) and not args.project:
@@ -2917,15 +2848,7 @@ Examples:
         zotero_api_key,
         anthropic_api_key,
         project_name=project_name,
-        research_brief="",
-        project_overview="",
-        tags=[],
-        relevance_threshold=args.threshold,
-        max_sources=args.max_sources,
-        use_sonnet=args.use_sonnet,
         force_rebuild=args.force,
-        max_workers=args.max_workers,
-        rate_limit_delay=args.rate_limit_delay,
         verbose=args.verbose
     )
 
@@ -2964,32 +2887,11 @@ Examples:
 
     # Handle --build-summaries mode
     if args.build_summaries:
-        # Load project overview and tags from files if provided (file-based mode)
-        if args.project_overview:
-            try:
-                project_overview = researcher.load_project_overview(args.project_overview)
-                researcher.project_overview = project_overview
-                print(f"✅ Loaded project overview from: {args.project_overview}")
-                print(f"   Length: {len(project_overview)} characters")
-            except Exception as e:
-                print(f"❌ Error loading project overview: {e}")
-                return
-
-        if args.tags:
-            try:
-                tags = researcher.load_tags(args.tags)
-                researcher.tags = tags
-                print(f"✅ Loaded {len(tags)} tags from: {args.tags}")
-                print(f"   Tags: {', '.join(tags[:5])}{', ...' if len(tags) > 5 else ''}\n")
-            except Exception as e:
-                print(f"❌ Error loading tags: {e}")
-                return
-
-        # Build summaries (will auto-detect mode: file-based vs Zotero-native)
+        # Build summaries using Zotero-native mode
         researcher.build_general_summaries(collection_key)
         return
 
-    # Handle --query-summary mode (Zotero-native)
+    # Handle --query-summary mode
     if args.query_summary:
         # Run query with research brief from Zotero
         result = researcher.run_query_summary(collection_key)
@@ -2999,37 +2901,6 @@ Examples:
                 print(f"Note: Large report saved as file (with stub note in Zotero)")
             else:
                 print(f"Note: Report saved as note in project subcollection")
-        return
-
-    # Handle --query mode (file-based)
-    if args.query:
-        if not args.brief:
-            print("Error: --brief is required for --query mode")
-            print("Example: python zresearcher.py --query --collection KEY --brief brief.txt")
-            print("\nNote: You must run --build-summaries first to create general summaries.")
-            return
-
-        # Load research brief
-        try:
-            research_brief = researcher.load_research_brief(args.brief)
-            researcher.research_brief = research_brief
-            print(f"✅ Loaded research brief from: {args.brief}")
-            print(f"   Brief length: {len(research_brief)} characters\n")
-        except Exception as e:
-            print(f"❌ Error loading research brief: {e}")
-            return
-
-        # Run query
-        output_file = researcher.run_query(collection_key)
-
-        if output_file and args.output:
-            # Rename to user-specified output
-            import shutil
-            try:
-                shutil.move(output_file, args.output)
-                print(f"✅ Report moved to: {args.output}")
-            except Exception as e:
-                print(f"⚠️  Could not move to {args.output}: {e}")
         return
 
 
