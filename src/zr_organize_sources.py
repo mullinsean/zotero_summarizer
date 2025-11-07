@@ -6,7 +6,6 @@ Handles organization of sources to ensure all items have acceptable attachments.
 """
 
 import requests
-import trafilatura
 import time
 from typing import Optional, Dict, List, Tuple
 
@@ -145,16 +144,16 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
     def save_webpage_snapshot(self, item: Dict) -> bool:
         """
-        Save webpage as a linked URL attachment in Zotero.
+        Fetch webpage HTML and save as imported file attachment in Zotero.
 
-        This creates a link attachment that Zotero can use to fetch snapshots.
-        We verify the URL is accessible before creating the attachment.
+        This replicates the browser plugin's snapshot feature by fetching
+        the HTML content and uploading it as an imported file attachment.
 
         Args:
             item: The item (webpage, journalArticle, blogPost, etc.)
 
         Returns:
-            True if snapshot attachment created successfully, False otherwise
+            True if snapshot saved successfully, False otherwise
         """
         item_data = item['data']
         item_key = item['key']
@@ -164,43 +163,68 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
             print(f"  ❌ No URL found for item")
             return False
 
+        import tempfile
+        import os
+        from datetime import datetime
+
+        temp_path = None
         try:
-            print(f"  → Verifying URL accessibility: {url}")
+            print(f"  → Fetching webpage from: {url}")
 
-            # Verify URL is accessible
-            response = requests.head(url, timeout=10, allow_redirects=True)
-            # Accept both 2xx and 3xx status codes
-            if response.status_code >= 400:
-                # Try GET if HEAD fails (some servers block HEAD)
-                response = requests.get(url, timeout=30, stream=True)
-                response.raise_for_status()
-                # Don't download the full content, just verify it's accessible
+            # Fetch HTML content
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
 
-            print(f"  → Creating linked URL attachment")
+            # Get the HTML content
+            html_content = response.text
 
-            # Create a linked URL attachment (Zotero can fetch snapshot later)
-            attachment_template = self.zot.item_template('attachment', 'linked_url')
-            attachment_template['title'] = f"Link: {item_data.get('title', 'webpage')}"
-            attachment_template['url'] = url
-            attachment_template['parentItem'] = item_key
-            attachment_template['accessDate'] = item_data.get('accessDate', '')
+            print(f"  → Saving HTML snapshot ({len(html_content)} bytes)")
 
-            # Create the attachment
-            result = self.zot.create_items([attachment_template])
+            # Create a temporary HTML file
+            # Use a safe filename based on item title
+            safe_title = "".join(c for c in item_data.get('title', 'snapshot')[:50]
+                                if c.isalnum() or c in (' ', '-', '_')).strip()
+            safe_title = safe_title.replace(' ', '_')
 
-            if result['successful']:
-                print(f"  ✅ Linked URL attachment created (Zotero can fetch snapshot)")
+            with tempfile.NamedTemporaryFile(
+                mode='w',
+                suffix='.html',
+                prefix=f"{safe_title}_",
+                delete=False,
+                encoding='utf-8'
+            ) as f:
+                f.write(html_content)
+                temp_path = f.name
+
+            print(f"  → Uploading snapshot to Zotero")
+
+            # Upload as imported file attachment using pyzotero's attachment_simple
+            # This method handles the file upload to Zotero storage
+            result = self.zot.attachment_simple(
+                [temp_path],
+                parentid=item_key
+            )
+
+            if result:
+                print(f"  ✅ HTML snapshot saved as imported file attachment")
                 return True
             else:
-                print(f"  ❌ Failed to create attachment: {result}")
+                print(f"  ❌ Failed to upload snapshot")
                 return False
 
         except requests.exceptions.RequestException as e:
-            print(f"  ❌ Error verifying URL: {e}")
+            print(f"  ❌ Error fetching URL: {e}")
             return False
         except Exception as e:
-            print(f"  ❌ Error creating attachment: {e}")
+            print(f"  ❌ Error saving snapshot: {e}")
             return False
+        finally:
+            # Clean up temporary file
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except Exception:
+                    pass  # Ignore cleanup errors
 
     def organize_sources(self, collection_key: str) -> Dict[str, int]:
         """
