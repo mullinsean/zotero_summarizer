@@ -115,22 +115,14 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
             parent_key = result['successful']['0']['key']
 
-            # Now we need to recreate the attachment as a child
-            # Get the file content first
+            # Now link the existing attachment as a child
+            # Note: Child items cannot have collections assigned
             try:
-                file_content = self.download_attachment(attachment_item['key'])
-                if not file_content:
-                    print(f"  ⚠️  Warning: Could not download attachment content")
-                    # Parent created but attachment not linked
-                    return parent_key
-
-                # Upload as child attachment using attachment_simple with file content
-                # Note: pyzotero requires different approach for file uploads
-                # We'll use the update approach to link the existing attachment
-
-                # Update attachment to have parent
+                # Update attachment to have parent and remove collections
                 attachment_update = attachment_item.copy()
                 attachment_update['data']['parentItem'] = parent_key
+                # Remove collections (child items can't be in collections)
+                attachment_update['data']['collections'] = []
 
                 print(f"  → Linking attachment to parent")
                 update_result = self.zot.update_item(attachment_update)
@@ -143,7 +135,7 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
                 return parent_key
 
             except Exception as e:
-                print(f"  ⚠️  Warning: Error processing attachment: {e}")
+                print(f"  ⚠️  Warning: Error linking attachment: {e}")
                 # Parent created but attachment not linked
                 return parent_key
 
@@ -153,13 +145,16 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
     def save_webpage_snapshot(self, item: Dict) -> bool:
         """
-        Fetch webpage content and save as HTML attachment.
+        Save webpage as a linked URL attachment in Zotero.
+
+        This creates a link attachment that Zotero can use to fetch snapshots.
+        We verify the URL is accessible before creating the attachment.
 
         Args:
-            item: The webpage item
+            item: The item (webpage, journalArticle, blogPost, etc.)
 
         Returns:
-            True if snapshot saved successfully, False otherwise
+            True if snapshot attachment created successfully, False otherwise
         """
         item_data = item['data']
         item_key = item['key']
@@ -170,73 +165,41 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
             return False
 
         try:
-            print(f"  → Fetching snapshot from: {url}")
+            print(f"  → Verifying URL accessibility: {url}")
 
-            # Fetch HTML content
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
+            # Verify URL is accessible
+            response = requests.head(url, timeout=10, allow_redirects=True)
+            # Accept both 2xx and 3xx status codes
+            if response.status_code >= 400:
+                # Try GET if HEAD fails (some servers block HEAD)
+                response = requests.get(url, timeout=30, stream=True)
+                response.raise_for_status()
+                # Don't download the full content, just verify it's accessible
 
-            # Extract main content using Trafilatura
-            markdown = trafilatura.extract(
-                response.text,
-                output_format='markdown',
-                include_links=True,
-                include_images=False,
-                include_tables=True
-            )
+            print(f"  → Creating linked URL attachment")
 
-            if not markdown:
-                # Fallback: use raw HTML if Trafilatura fails
-                print(f"  ⚠️  Trafilatura extraction failed, using raw HTML")
-                html_content = response.text
+            # Create a linked URL attachment (Zotero can fetch snapshot later)
+            attachment_template = self.zot.item_template('attachment', 'linked_url')
+            attachment_template['title'] = f"Link: {item_data.get('title', 'webpage')}"
+            attachment_template['url'] = url
+            attachment_template['parentItem'] = item_key
+            attachment_template['accessDate'] = item_data.get('accessDate', '')
+
+            # Create the attachment
+            result = self.zot.create_items([attachment_template])
+
+            if result['successful']:
+                print(f"  ✅ Linked URL attachment created (Zotero can fetch snapshot)")
+                return True
             else:
-                # We have markdown, but we need HTML for attachment
-                # Use the original HTML
-                html_content = response.text
-
-            # Create attachment using pyzotero's attachment methods
-            # We'll save to a temporary file and upload
-            import tempfile
-            import os
-
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.html', delete=False, encoding='utf-8') as f:
-                f.write(html_content)
-                temp_path = f.name
-
-            try:
-                # Upload as imported file attachment
-                attachment_template = self.zot.item_template('attachment', 'imported_file')
-                attachment_template['title'] = f"Snapshot of {item_data.get('title', 'webpage')}"
-                attachment_template['parentItem'] = item_key
-                attachment_template['contentType'] = 'text/html'
-                attachment_template['filename'] = f"snapshot_{item_key}.html"
-
-                # Create the attachment item first
-                result = self.zot.create_items([attachment_template])
-
-                if result['successful']:
-                    attachment_key = result['successful']['0']['key']
-
-                    # Upload the file
-                    with open(temp_path, 'rb') as f:
-                        upload_result = self.zot.upload_attachment(attachment_key, f)
-
-                    print(f"  ✅ Snapshot saved as HTML attachment")
-                    return True
-                else:
-                    print(f"  ❌ Failed to create attachment: {result}")
-                    return False
-
-            finally:
-                # Clean up temp file
-                if os.path.exists(temp_path):
-                    os.unlink(temp_path)
+                print(f"  ❌ Failed to create attachment: {result}")
+                return False
 
         except requests.exceptions.RequestException as e:
-            print(f"  ❌ Error fetching URL: {e}")
+            print(f"  ❌ Error verifying URL: {e}")
             return False
         except Exception as e:
-            print(f"  ❌ Error saving snapshot: {e}")
+            print(f"  ❌ Error creating attachment: {e}")
             return False
 
     def organize_sources(self, collection_key: str) -> Dict[str, int]:
@@ -327,21 +290,21 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
                 print()
                 continue
 
-            # Step 3: Try to save webpage snapshot
+            # Step 3: Try to save webpage snapshot (for any item with URL)
             print(f"   ⚠️  No acceptable attachments found")
 
-            if item_type == 'webpage' and item_data.get('url'):
+            # Try to save snapshot for any item type that has a URL
+            if item_data.get('url'):
                 if self.save_webpage_snapshot(item):
                     stats['snapshots_saved'] += 1
                 else:
                     stats['issues'] += 1
                     issues_list.append((item_title, item_type, "Failed to save snapshot"))
             else:
-                # Cannot auto-fix
-                reason = "No URL available" if item_type == 'webpage' else f"Item type '{item_type}' not supported for snapshot"
-                print(f"   ❌ Cannot auto-fix: {reason}")
+                # Cannot auto-fix - no URL available
+                print(f"   ❌ Cannot auto-fix: No URL available")
                 stats['issues'] += 1
-                issues_list.append((item_title, item_type, reason))
+                issues_list.append((item_title, item_type, "No URL available"))
 
             print()
 
