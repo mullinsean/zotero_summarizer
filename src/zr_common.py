@@ -368,11 +368,10 @@ sonnet_model=claude-sonnet-4-5
     def get_source_content(self, item: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
         Get content from a source using priority order:
-        1. Existing "Markdown Extract" note
-        2. HTML snapshot (Trafilatura)
-        3. PDF attachment (PyMuPDF)
-        4. TXT attachment (plain text)
-        5. URL fetch (for webpage items)
+        1. HTML snapshot (Trafilatura)
+        2. PDF attachment (PyMuPDF)
+        3. TXT attachment (plain text)
+        4. URL fetch (for webpage items)
 
         Args:
             item: The Zotero item
@@ -384,22 +383,11 @@ sonnet_model=claude-sonnet-4-5
         item_data = item['data']
         item_title = item_data.get('title', 'Untitled')
 
-        # Priority 1: Check for existing Markdown Extract note
-        if self.has_note_with_prefix(item_key, 'Markdown Extract:'):
-            print(f"  📝 Found existing Markdown Extract note")
-            markdown_note = self.get_note_with_prefix(item_key, 'Markdown Extract:')
-            if markdown_note:
-                # Strip HTML tags if present (notes are stored as HTML)
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(markdown_note, 'html.parser')
-                text_content = soup.get_text()
-                return text_content.strip(), "Markdown Extract"
-
         # Get attachments
         attachments = self.get_item_attachments(item_key)
 
         if attachments:
-            # Priority 2: Try HTML attachment
+            # Priority 1: Try HTML attachment
             for attachment in attachments:
                 if self.is_html_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -415,7 +403,7 @@ sonnet_model=claude-sonnet-4-5
                         if extracted:
                             return extracted, "HTML"
 
-            # Priority 3: Try PDF attachment
+            # Priority 2: Try PDF attachment
             for attachment in attachments:
                 if self.is_pdf_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -430,7 +418,7 @@ sonnet_model=claude-sonnet-4-5
                         if extracted:
                             return extracted, "PDF"
 
-            # Priority 4: Try TXT attachment
+            # Priority 3: Try TXT attachment
             for attachment in attachments:
                 if self.is_txt_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -445,7 +433,7 @@ sonnet_model=claude-sonnet-4-5
                         if extracted:
                             return extracted, "TXT"
 
-        # Priority 5: Try fetching from URL (for webpage items)
+        # Priority 4: Try fetching from URL (for webpage items)
         item_url = item_data.get('url')
         if item_url and item_data.get('itemType') == 'webpage':
             print(f"  🌐 Fetching from URL: {item_url}")
