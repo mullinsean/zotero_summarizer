@@ -573,6 +573,60 @@ Project: {self.project_name}
             traceback.print_exc()
             return None
 
+    def generate_report_title(self, research_brief: str) -> str:
+        """
+        Generate an appropriate title for the research report based on the research brief.
+
+        Args:
+            research_brief: The research question/brief to generate a title for
+
+        Returns:
+            Generated title string, or fallback title if generation fails
+        """
+        try:
+            # Truncate brief if too long (keep first 2000 chars)
+            brief_for_prompt = research_brief[:2000] if len(research_brief) > 2000 else research_brief
+
+            prompt = f"""Based on the following research brief, generate a concise, professional title for a research report (max 10 words).
+
+Research Brief:
+{brief_for_prompt}
+
+Respond with ONLY the title, nothing else. No quotes, no punctuation at the end."""
+
+            # Use Haiku for fast, cost-efficient title generation
+            title = self.llm_client.call(
+                prompt=prompt,
+                max_tokens=50,
+                model=self.haiku_model,
+                temperature=0.5
+            )
+
+            if title:
+                # Clean up the title - remove quotes if present
+                title = title.strip().strip('"\'')
+                # Limit length
+                if len(title) > 100:
+                    title = title[:97] + "..."
+                return title
+            else:
+                # Fallback to simple extraction from brief
+                brief_lines = research_brief.strip().split('\n')
+                fallback = brief_lines[0] if brief_lines else "Research Report"
+                if len(fallback) > 100:
+                    fallback = fallback[:97] + "..."
+                return fallback
+
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️  Error generating title: {e}")
+            # Fallback to simple extraction from brief
+            brief_lines = research_brief.strip().split('\n')
+            fallback = brief_lines[0] if brief_lines else "Research Report"
+            if len(fallback) > 100:
+                fallback = fallback[:97] + "..."
+            return fallback
+
     def create_general_summary_with_tags(
         self,
         item_key: str,
@@ -1041,7 +1095,8 @@ Project: {self.project_name}
         self,
         collection_key: str,
         relevant_sources: List[Dict],
-        stats: Dict
+        stats: Dict,
+        report_title: str = "Research Report"
     ) -> str:
         """
         Compile all research results into an HTML document with linked TOC.
@@ -1050,6 +1105,7 @@ Project: {self.project_name}
             collection_key: The collection key
             relevant_sources: List of dicts with source data and summaries
             stats: Statistics dict with processing info
+            report_title: Title for the research report (optional, defaults to "Research Report")
 
         Returns:
             Filename of the generated HTML file
@@ -1299,7 +1355,7 @@ Project: {self.project_name}
         # Header
         html_parts.append(f"""
     <div class="header">
-        <h1>🔬 Research Report</h1>
+        <h1>🔬 {report_title}</h1>
         <div class="meta">
             Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}<br>
             Collection: {collection_key}<br>
@@ -2305,8 +2361,12 @@ Edit this note before running --query-summary"""
             'time': f"{elapsed_time:.1f} seconds"
         }
 
+        # Generate title from research brief using LLM
+        print(f"  Generating report title...")
+        report_title = self.generate_report_title(self.research_brief)
+
         # Generate HTML content (but don't save to file yet)
-        html_content = self._compile_research_html_string(collection_key, relevant_sources, stats)
+        html_content = self._compile_research_html_string(collection_key, relevant_sources, stats, report_title)
 
         # Check HTML size (1MB = 1,048,576 bytes)
         html_size_bytes = len(html_content.encode('utf-8'))
@@ -2353,7 +2413,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             note_key = self.create_standalone_note(
                 subcollection_key,
                 stub_content,
-                f"Research Report - {datetime.now().strftime('%Y-%m-%d')} (See File)",
+                f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {report_title} (See File)",
                 convert_markdown=True
             )
 
@@ -2380,13 +2440,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
         else:
             print(f"  Creating note in {self._get_subcollection_name()}...")
 
-            # Extract title from research brief (first line or first 100 chars)
-            brief_lines = self.research_brief.strip().split('\n')
-            brief_title = brief_lines[0] if brief_lines else "Research Report"
-            if len(brief_title) > 100:
-                brief_title = brief_title[:97] + "..."
-
-            note_title = f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {brief_title}"
+            note_title = f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {report_title}"
 
             # Create note with HTML content directly (no markdown conversion)
             note_key = self.create_standalone_note(
@@ -2416,7 +2470,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
 
             return note_key
 
-    def _compile_research_html_string(self, collection_key: str, relevant_sources: List[Dict], stats: Dict) -> str:
+    def _compile_research_html_string(self, collection_key: str, relevant_sources: List[Dict], stats: Dict, report_title: str = "Research Report") -> str:
         """
         Internal method: Generate HTML report as string (doesn't save to file).
 
@@ -2424,6 +2478,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             collection_key: Collection key
             relevant_sources: List of relevant sources with summaries
             stats: Statistics dict
+            report_title: Title for the research report (optional, defaults to "Research Report")
 
         Returns:
             HTML content as string
@@ -2605,7 +2660,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
         # Header
         html_parts.append(f"""
     <div class="header">
-        <h1>Research Report</h1>
+        <h1>{report_title}</h1>
         <div class="meta">
             Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}<br>
             Collection: {collection_key}<br>
