@@ -19,22 +19,6 @@ except ImportError:
 class ZoteroResearcherOrganizer(ZoteroResearcherBase):
     """Handles organization of sources to ensure acceptable attachments exist."""
 
-    def is_txt_attachment(self, attachment: Dict) -> bool:
-        """
-        Check if an attachment is a text file.
-
-        Args:
-            attachment: The attachment item data
-
-        Returns:
-            True if the attachment is a text file
-        """
-        content_type = attachment['data'].get('contentType', '')
-        filename = attachment['data'].get('filename', '')
-
-        return (content_type == 'text/plain' or
-                filename.lower().endswith('.txt'))
-
     def has_acceptable_attachment(self, item_key: str) -> bool:
         """
         Check if an item has at least one acceptable attachment (HTML, PDF, or TXT).

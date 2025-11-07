@@ -331,13 +331,48 @@ sonnet_model=claude-sonnet-4-5
             print(f"  ❌ Error extracting PDF text: {e}")
             return None
 
+    def extract_text_from_txt(self, txt_content: bytes) -> Optional[str]:
+        """
+        Extract text from a plain text file.
+
+        Args:
+            txt_content: The text file content as bytes
+
+        Returns:
+            Extracted text as string, or None if extraction failed
+        """
+        try:
+            # Try UTF-8 first, then fall back to other encodings
+            try:
+                text = txt_content.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try common alternative encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        text = txt_content.decode(encoding)
+                        print(f"  ℹ️  Decoded using {encoding} encoding")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    # If all else fails, decode with errors='replace'
+                    text = txt_content.decode('utf-8', errors='replace')
+                    print(f"  ⚠️  Warning: Some characters could not be decoded")
+
+            return text.strip() if text else None
+
+        except Exception as e:
+            print(f"  ❌ Error extracting text: {e}")
+            return None
+
     def get_source_content(self, item: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
         Get content from a source using priority order:
         1. Existing "Markdown Extract" note
         2. HTML snapshot (Trafilatura)
         3. PDF attachment (PyMuPDF)
-        4. URL fetch (for webpage items)
+        4. TXT attachment (plain text)
+        5. URL fetch (for webpage items)
 
         Args:
             item: The Zotero item
@@ -395,7 +430,22 @@ sonnet_model=claude-sonnet-4-5
                         if extracted:
                             return extracted, "PDF"
 
-        # Priority 4: Try fetching from URL (for webpage items)
+            # Priority 4: Try TXT attachment
+            for attachment in attachments:
+                if self.is_txt_attachment(attachment):
+                    attachment_title = attachment['data'].get('title', 'Untitled')
+                    attachment_key = attachment['key']
+
+                    print(f"  📄 Found TXT attachment: {attachment_title}")
+                    print(f"  📥 Downloading...")
+
+                    txt_content = self.download_attachment(attachment_key)
+                    if txt_content:
+                        extracted = self.extract_text_from_txt(txt_content)
+                        if extracted:
+                            return extracted, "TXT"
+
+        # Priority 5: Try fetching from URL (for webpage items)
         item_url = item_data.get('url')
         if item_url and item_data.get('itemType') == 'webpage':
             print(f"  🌐 Fetching from URL: {item_url}")
