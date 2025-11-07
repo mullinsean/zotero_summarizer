@@ -345,8 +345,8 @@ class ZoteroSourceSummarizer(ZoteroBaseProcessor):
                 errors += 1
 
             # Rate limiting - be nice to the APIs
-            print(f"  ⏳ Rate limiting (1 second)...")
-            time.sleep(1)
+            print(f"  ⏳ Rate limiting (0.1 second)...")
+            time.sleep(0.1)
 
         # Print summary
         print(f"\n{'='*80}")

@@ -2413,7 +2413,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             note_key = self.create_standalone_note(
                 subcollection_key,
                 stub_content,
-                f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {report_title} (See File)",
+                f"{report_title} (See File)",
                 convert_markdown=True
             )
 
@@ -2440,13 +2440,11 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
         else:
             print(f"  Creating note in {self._get_subcollection_name()}...")
 
-            note_title = f"Research Report - {datetime.now().strftime('%Y-%m-%d')}: {report_title}"
-
             # Create note with HTML content directly (no markdown conversion)
             note_key = self.create_standalone_note(
                 subcollection_key,
                 html_content,
-                note_title,
+                report_title,
                 convert_markdown=False  # Already HTML
             )
 

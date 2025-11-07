@@ -327,7 +327,7 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
                             else:
                                 errors += 1
 
-                            time.sleep(1)
+                            time.sleep(0.1)
                     else:
                         print("  ✗ Could not fetch content from URL")
                         errors += 1
@@ -394,9 +394,9 @@ class ZoteroHTMLExtractor(ZoteroBaseProcessor):
                         processed += 1
                     else:
                         errors += 1
-                    
+
                     # Rate limiting - be nice to Zotero API
-                    time.sleep(1)
+                    time.sleep(0.1)
                     break  # Process only the first HTML attachment
                 else:
                     print("  ✗ Could not retrieve HTML content")
