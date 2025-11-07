@@ -135,25 +135,25 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         """Get project-specific overview note title."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
-        return f"【Project Overview: {self.project_name}】"
+        return f"【Project Overview】"
 
     def _get_research_tags_note_title(self) -> str:
         """Get project-specific tags note title."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
-        return f"【Research Tags: {self.project_name}】"
+        return f"【Research Tags】"
 
     def _get_research_brief_note_title(self) -> str:
         """Get project-specific brief note title."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
-        return f"【Research Brief: {self.project_name}】"
+        return f"【Research Brief】"
 
     def _get_project_config_note_title(self) -> str:
         """Get project-specific config note title."""
         if not self.project_name:
             raise ValueError("Project name is required but not set")
-        return f"【Project Config: {self.project_name}】"
+        return f"【Project Config】"
 
     def _get_summary_note_prefix(self) -> str:
         """Get project-specific summary note prefix (used as note title/heading)."""
