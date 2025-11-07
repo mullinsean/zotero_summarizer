@@ -19,11 +19,13 @@ try:
     from .zr_init import ZoteroResearcherInit
     from .zr_build import ZoteroResearcherBuilder
     from .zr_query import ZoteroResearcherQuerier
+    from .zr_organize_sources import ZoteroResearcherOrganizer
 except ImportError:
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
     from zr_build import ZoteroResearcherBuilder
     from zr_query import ZoteroResearcherQuerier
+    from zr_organize_sources import ZoteroResearcherOrganizer
 
 
 def main():
@@ -45,6 +47,9 @@ Examples:
 
   # Initialize collection for a new project
   python zresearcher.py --init-collection --collection KEY --project "AI Productivity"
+
+  # Organize sources (optional, run after init-collection)
+  python zresearcher.py --organize-sources --collection KEY
 
   # Phase 1: Build general summaries
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity"
@@ -73,6 +78,11 @@ Examples:
         '--init-collection',
         action='store_true',
         help='Initialize collection with project-specific 【ZResearcher: PROJECT】 subcollection and templates'
+    )
+    mode_group.add_argument(
+        '--organize-sources',
+        action='store_true',
+        help='Organize sources: ensure all items have acceptable attachments (HTML/PDF/TXT). Optional, run after init-collection.'
     )
     mode_group.add_argument(
         '--build-summaries',
@@ -212,6 +222,20 @@ Examples:
         print("  1. Set ZOTERO_COLLECTION_KEY in your .env file, or")
         print("  2. Use --collection COLLECTION_KEY argument")
         print("\nTip: Run with --list-collections to see available collections")
+        return
+
+    # Handle --organize-sources mode
+    if args.organize_sources:
+        organizer = ZoteroResearcherOrganizer(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key,
+            project_name=project_name if project_name else "temp",  # Optional for organize
+            force_rebuild=False,
+            verbose=args.verbose
+        )
+        stats = organizer.organize_sources(collection_key)
         return
 
     # Handle --build-summaries mode
