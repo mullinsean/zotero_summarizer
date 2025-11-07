@@ -38,14 +38,14 @@ uv pip install -r requirements.txt
 **ZoteroResearcher - Primary Tool**
 ```bash
 # Step 0: List collections
-uv run python -m zotero_summarizer.zresearcher --list-collections
+uv run python -m src.zresearcher --list-collections
 
 # Step 1: Initialize a project in a collection (creates template notes in Zotero)
-uv run python -m zotero_summarizer.zresearcher --init-collection \
+uv run python -m src.zresearcher --init-collection \
     --collection COLLECTION_KEY --project "My Research Project"
 
 # Step 2: List existing projects in a collection
-uv run python -m zotero_summarizer.zresearcher --list-projects --collection COLLECTION_KEY
+uv run python -m src.zresearcher --list-projects --collection COLLECTION_KEY
 
 # Step 3: Edit the template notes in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
 #   - 【Project Overview: PROJECT】 (describe your research project)
@@ -54,27 +54,27 @@ uv run python -m zotero_summarizer.zresearcher --list-projects --collection COLL
 #   - 【Project Config: PROJECT】 (optional: tune performance & LLM settings)
 
 # Step 4: Build general summaries (Phase 1 - loads config from Zotero)
-uv run python -m zotero_summarizer.zresearcher --build-summaries \
+uv run python -m src.zresearcher --build-summaries \
     --collection COLLECTION_KEY --project "My Research Project"
 
 # Rebuild existing summaries (force mode)
-uv run python -m zotero_summarizer.zresearcher --build-summaries \
+uv run python -m src.zresearcher --build-summaries \
     --collection COLLECTION_KEY --project "My Research Project" --force
 
 # Step 5: Run query (Phase 2 - loads brief from Zotero, stores report as note)
-uv run python -m zotero_summarizer.zresearcher --query-summary \
+uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Research Project"
 
 # Verbose mode for detailed logging
-uv run python -m zotero_summarizer.zresearcher --query-summary \
+uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
 ```
 
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
-uv run python -m zotero_summarizer.zotero_diagnose --user
-uv run python -m zotero_summarizer.zotero_diagnose --group GROUP_ID
+uv run python -m src.zotero_diagnose --user
+uv run python -m src.zotero_diagnose --group GROUP_ID
 ```
 
 **Legacy Tools** (deprecated, see `/old/` directory):
@@ -97,7 +97,7 @@ No test framework currently configured. Tests should be added in `/tests/` direc
 
 **File Structure:**
 ```
-zotero_summarizer/
+src/
 ├── zresearcher.py (253 lines)    # CLI entry point & routing
 ├── zr_common.py (559 lines)      # Base class & shared utilities
 ├── zr_init.py (266 lines)        # Collection initialization workflow
@@ -157,7 +157,7 @@ zotero_summarizer/
 
 **`old/summarize_sources.py`** - Basic source summarization (superseded by ZoteroResearcher)
 
-### LLM Module: `zotero_summarizer/llm_extractor.py`
+### LLM Module: `src/llm_extractor.py`
 
 The `LLMExtractor` class provides AI-powered content polishing:
 
@@ -175,7 +175,7 @@ The `LLMExtractor` class provides AI-powered content polishing:
 - Uses Claude Haiku 4.5 by default for cost efficiency
 - Handles content of any size (works with already-extracted markdown)
 
-### Utility Module: `zotero_summarizer/zotero_diagnose.py`
+### Utility Module: `src/zotero_diagnose.py`
 
 Diagnostic tool for troubleshooting Zotero connections and library access. Provides CLI for testing API connectivity and group membership.
 
@@ -355,7 +355,7 @@ Edit this note before running --query-summary
 
 **Inherits from:** `ZoteroBaseProcessor` (shares collection/attachment/note handling with other modules)
 
-### Base Module: `zotero_summarizer/zotero_base.py`
+### Base Module: `src/zotero_base.py`
 
 The `ZoteroBaseProcessor` class provides shared functionality for all processors:
 

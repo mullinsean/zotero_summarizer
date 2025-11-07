@@ -21,7 +21,7 @@ Add a sophisticated research assistant feature that analyzes a Zotero collection
 
 ## Architecture
 
-### New Module: `zotero_summarizer/zresearcher.py`
+### New Module: `src/zresearcher.py`
 
 **Class: `ZoteroResearcher`**
 
@@ -39,7 +39,7 @@ Inherits from `ZoteroBaseProcessor` (like `ZoteroSourceSummarizer` does) to reus
 - `compile_html_document()` - Build final HTML document (leverage pattern from `build_compiled_html()`)
 - `run_research()` - Main orchestration method
 
-### New Module: `zotero_summarizer/source_summarizer.py` (Optional)
+### New Module: `src/source_summarizer.py` (Optional)
 
 **Class: `SourceSummarizer`**
 

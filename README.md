@@ -30,7 +30,7 @@ All configuration and outputs are stored in Zotero (no external files required).
 
 3. **Initialize a project:**
    ```bash
-   uv run python -m zotero_summarizer.zresearcher --init-collection \
+   uv run python -m src.zresearcher --init-collection \
        --collection COLLECTION_KEY --project "My Research Project"
    ```
 
@@ -38,13 +38,13 @@ All configuration and outputs are stored in Zotero (no external files required).
 
 5. **Build summaries** (Phase 1):
    ```bash
-   uv run python -m zotero_summarizer.zresearcher --build-summaries \
+   uv run python -m src.zresearcher --build-summaries \
        --collection COLLECTION_KEY --project "My Research Project"
    ```
 
 6. **Run query** (Phase 2):
    ```bash
-   uv run python -m zotero_summarizer.zresearcher --query-summary \
+   uv run python -m src.zresearcher --query-summary \
        --collection COLLECTION_KEY --project "My Research Project"
    ```
 
@@ -67,7 +67,7 @@ These are superseded by the more powerful ZoteroResearcher tool.
 ## Project Structure
 
 ```
-zotero_summarizer/
+src/
 ├── zresearcher.py        # CLI entry point
 ├── zr_common.py          # Base class & shared utilities
 ├── zr_init.py            # Collection initialization

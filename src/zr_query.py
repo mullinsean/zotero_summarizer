@@ -597,7 +597,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             note_key = self.create_standalone_note(
                 subcollection_key,
                 stub_content,
-                f"{report_title} (See File)",
+                f"Research Report: {report_title} (See File)",
                 convert_markdown=True
             )
 
@@ -628,7 +628,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             note_key = self.create_standalone_note(
                 subcollection_key,
                 html_content,
-                report_title,
+                f"Research Report: {report_title}",
                 convert_markdown=False  # Already HTML
             )
 
