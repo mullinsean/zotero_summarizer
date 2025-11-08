@@ -234,8 +234,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         if not self.file_search_store_name:
             print(f"Creating new file search store...")
             try:
-                # Create store (no display_name parameter in the API)
-                store = self.genai_client.file_search_stores.create()
+                # Create store with display name in config
+                store = self.genai_client.file_search_stores.create(
+                    config={'display_name': f'ZResearcher: {self.project_name}'}
+                )
                 self.file_search_store_name = store.name
                 print(f"✅ Created store: {self.file_search_store_name}\n")
             except Exception as e:
@@ -329,8 +331,9 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     print(f"  ☁️  Uploading to file search store...")
 
                     upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
+                        file=temp_path,
                         file_search_store_name=self.file_search_store_name,
-                        file=temp_path
+                        config={'display_name': f"{item_title} - {attachment_title}"}
                     )
 
                     # Wait for upload operation to complete
@@ -340,7 +343,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     while not upload_op.done and waited < max_wait:
                         time.sleep(5)
                         waited += 5
-                        upload_op = self.genai_client.operations.get(name=upload_op.name)
+                        upload_op = self.genai_client.operations.get(upload_op)
 
                     if not upload_op.done:
                         print(f"  ⚠️  Upload operation timed out after {max_wait}s")
@@ -479,9 +482,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 config=self.genai_types.GenerateContentConfig(
                     tools=[
                         self.genai_types.Tool(
-                            file_search=self.genai_types.FileSearch(
-                                file_search_store_names=[self.file_search_store_name]
-                            )
+                            file_search={'file_search_store_names': [self.file_search_store_name]}
                         )
                     ]
                 )
