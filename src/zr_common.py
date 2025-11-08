@@ -149,6 +149,12 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
             raise ValueError("Project name is required but not set")
         return f"【Research Brief】"
 
+    def _get_query_request_note_title(self) -> str:
+        """Get project-specific query request note title (for File Search)."""
+        if not self.project_name:
+            raise ValueError("Project name is required but not set")
+        return f"【Query Request】"
+
     def _get_project_config_note_title(self) -> str:
         """Get project-specific config note title."""
         if not self.project_name:
@@ -191,6 +197,12 @@ max_sources=50
 use_sonnet=false
 haiku_model=claude-haiku-4-5
 sonnet_model=claude-sonnet-4-5
+
+# ============================================================
+# Gemini File API State (managed automatically)
+# DO NOT EDIT - these are updated by --file-search
+# ============================================================
+gemini_uploaded_files={}
 
 # ============================================================
 # Notes:
