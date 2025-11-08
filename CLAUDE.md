@@ -91,6 +91,33 @@ uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project" --force
 ```
 
+**ZoteroResearcher - Cleanup**
+```bash
+# Preview cleanup for a specific project (dry-run mode - no changes made)
+uv run python -m src.zresearcher --cleanup-project \
+    --collection COLLECTION_KEY --project "My Research Project" --dry-run
+
+# Clean up a specific project (deletes subcollection and all summary notes)
+uv run python -m src.zresearcher --cleanup-project \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Skip confirmation prompt (useful for scripts)
+uv run python -m src.zresearcher --cleanup-project \
+    --collection COLLECTION_KEY --project "My Research Project" --yes
+
+# Preview cleanup for ALL projects in a collection (dry-run mode)
+uv run python -m src.zresearcher --cleanup-collection \
+    --collection COLLECTION_KEY --dry-run
+
+# Clean up ALL projects in a collection (use with caution!)
+uv run python -m src.zresearcher --cleanup-collection \
+    --collection COLLECTION_KEY --yes
+
+# Verbose mode shows detailed error messages
+uv run python -m src.zresearcher --cleanup-project \
+    --collection COLLECTION_KEY --project "My Research Project" --verbose
+```
+
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
@@ -119,13 +146,14 @@ No test framework currently configured. Tests should be added in `/tests/` direc
 **File Structure:**
 ```
 src/
-├── zresearcher.py (~320 lines)         # CLI entry point & routing
-├── zr_common.py (~600 lines)           # Base class & shared utilities
+├── zresearcher.py (~380 lines)         # CLI entry point & routing
+├── zr_common.py (~760 lines)           # Base class & shared utilities
 ├── zr_init.py (~290 lines)             # Collection initialization workflow
 ├── zr_organize_sources.py (~350 lines) # Source organization workflow
-├── zr_build.py (443 lines)             # Phase 1: Build summaries workflow
-├── zr_query.py (992 lines)             # Phase 2: Query & report generation workflow
+├── zr_build.py (~440 lines)            # Phase 1: Build summaries workflow
+├── zr_query.py (~990 lines)            # Phase 2: Query & report generation workflow
 ├── zr_file_search.py (~450 lines)      # File Search: Gemini RAG integration
+├── zr_cleanup.py (~530 lines)          # Cleanup: Delete projects & summary notes
 ├── zr_llm_client.py                    # Centralized LLM API client
 ├── zr_prompts.py                       # Prompt templates
 └── zotero_base.py                      # Base Zotero API functionality
@@ -194,6 +222,23 @@ src/
   - Creates numbered Research Report notes in Zotero
   - Free storage and embedding; $0.15 per 1M tokens for indexing
   - Smart upload: Only uploads on first run or with --force flag
+
+**`zr_cleanup.py`** - Cleanup Workflow (Delete Projects & Summary Notes)
+- `ZoteroResearcherCleaner` class (inherits from `ZoteroResearcherBase`)
+  - `cleanup_project()` - Delete specific project subcollection and summary notes
+  - `cleanup_all_projects()` - Delete ALL ZResearcher data in collection
+  - `is_general_summary_note()` - Identify general summary notes (with optional project filter)
+  - `find_general_summary_notes_for_project()` - Find summaries for specific project
+  - `find_all_general_summary_notes()` - Find all summary notes in collection
+  - `find_all_project_subcollections()` - Find all ZResearcher subcollections
+  - `count_items_in_collection()` - Count items by type (notes/files/items)
+  - `preview_cleanup()` - Display preview of what will be deleted
+  - `confirm_cleanup()` - Ask user for confirmation
+  - `delete_collection_recursive()` - Delete collection and all contents
+  - Supports dry-run mode (--dry-run) for safe previewing
+  - Supports skip-confirmation mode (--yes) for scripting
+  - Continues cleanup even if individual deletions fail
+  - Reports detailed summary of deleted items and errors
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
