@@ -182,3 +182,61 @@ Please provide:
    - Location (page number, section, etc.) if available
 
 Format your response using clear markdown headings and structure."""
+
+
+def metadata_extraction_prompt(
+    content: str,
+    filename: str,
+    content_type: str
+) -> str:
+    """
+    Prompt for extracting metadata from source content.
+
+    Used in organize-sources workflow when creating parent items from attachments.
+    Attempts to extract: Title, Author(s), Publication, Date
+
+    Args:
+        content: Source content (first 10,000 characters)
+        filename: Original filename of the attachment
+        content_type: MIME type of the attachment
+
+    Returns:
+        Formatted prompt string
+    """
+    return f"""You are analyzing a document to extract bibliographic metadata. The document was uploaded as an attachment with the following properties:
+
+Filename: {filename}
+Content Type: {content_type}
+
+Content (first 10,000 characters):
+{content}
+
+Please extract the following metadata from this document:
+
+1. **Title**: The full title of the document
+2. **Authors**: The author(s) of the document (if multiple, separate with commas)
+3. **Publication**: The publication venue (journal, website, publisher, etc.)
+4. **Date**: Publication date or date referenced in the document
+
+Guidelines:
+- If a field cannot be determined from the content, respond with "Unknown"
+- For the title, if no clear title is present, derive a descriptive title from the content
+- For authors, look for bylines, author sections, or signatures
+- For publication, look for journal names, website names, publisher information, or source attribution
+- For dates, look for publication dates, copyright dates, or date stamps (format as YYYY-MM-DD if possible, or YYYY if only year is available)
+
+Format your response EXACTLY as follows:
+
+TITLE:
+<title here>
+
+AUTHORS:
+<authors here>
+
+PUBLICATION:
+<publication here>
+
+DATE:
+<date here>
+
+Provide ONLY the metadata in the format above, nothing else."""
