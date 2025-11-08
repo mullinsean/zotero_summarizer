@@ -300,7 +300,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
     def delete_gemini_files_for_project(self, collection_key: str, gemini_api_key: str = None) -> Dict[str, any]:
         """
-        Delete all Gemini files uploaded for this project.
+        Delete Gemini file search store for this project.
 
         Args:
             collection_key: Parent collection key
@@ -318,68 +318,50 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         if not gemini_api_key:
             if self.verbose:
-                print("  ℹ️  No GEMINI_API_KEY found, skipping Gemini file cleanup")
+                print("  ℹ️  No GEMINI_API_KEY found, skipping Gemini cleanup")
             return result
 
         try:
             # Initialize Gemini client
             try:
-                import google.generativeai as genai
-                genai.configure(api_key=gemini_api_key)
+                from google import genai
+                genai_client = genai.Client(api_key=gemini_api_key)
             except ImportError:
                 if self.verbose:
-                    print("  ⚠️  google-generativeai package not found, skipping Gemini file cleanup")
+                    print("  ⚠️  google-genai package not found, skipping Gemini cleanup")
                 return result
 
-            # Load project config to get uploaded files
+            # Load project config to get file search store
             try:
                 config = self.load_project_config_from_zotero(collection_key)
             except (FileNotFoundError, ValueError):
                 # No config found, nothing to delete
                 if self.verbose:
-                    print("  ℹ️  No project config found, no Gemini files to delete")
+                    print("  ℹ️  No project config found, no Gemini store to delete")
                 return result
 
-            # Parse uploaded files JSON
-            uploaded_files_json = config.get('gemini_uploaded_files', '')
-            if not uploaded_files_json:
+            # Get file search store name
+            store_name = config.get('gemini_file_search_store', '')
+            if not store_name:
                 if self.verbose:
-                    print("  ℹ️  No Gemini files found in project config")
+                    print("  ℹ️  No Gemini file search store found in project config")
                 return result
 
-            # Parse the JSON
+            # Delete the file search store (this deletes all files in it)
+            print(f"  🗑️  Deleting Gemini file search store...")
             try:
-                import json
-                if uploaded_files_json.startswith('{'):
-                    uploaded_files = json.loads(uploaded_files_json)
-                else:
-                    uploaded_files = {}
-            except json.JSONDecodeError:
+                genai_client.file_search_stores.delete(name=store_name)
+                result['deleted'] = 1
                 if self.verbose:
-                    print("  ⚠️  Failed to parse Gemini files JSON")
-                return result
-
-            if not uploaded_files:
+                    print(f"    ✅ Deleted store: {store_name}")
+            except Exception as e:
+                error_msg = f"Failed to delete Gemini file search store {store_name}: {e}"
+                result['errors'].append(error_msg)
                 if self.verbose:
-                    print("  ℹ️  No Gemini files to delete")
-                return result
-
-            # Delete each file
-            print(f"  🗑️  Deleting {len(uploaded_files)} Gemini files...")
-            for item_key, file_name in uploaded_files.items():
-                try:
-                    genai.delete_file(file_name)
-                    result['deleted'] += 1
-                    if self.verbose:
-                        print(f"    ✅ Deleted: {file_name}")
-                except Exception as e:
-                    error_msg = f"Failed to delete Gemini file {file_name}: {e}"
-                    result['errors'].append(error_msg)
-                    if self.verbose:
-                        print(f"    ⚠️  {error_msg}")
+                    print(f"    ⚠️  {error_msg}")
 
         except Exception as e:
-            error_msg = f"Error during Gemini file cleanup: {e}"
+            error_msg = f"Error during Gemini cleanup: {e}"
             result['errors'].append(error_msg)
             if self.verbose:
                 print(f"  ⚠️  {error_msg}")

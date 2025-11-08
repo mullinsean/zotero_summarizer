@@ -86,10 +86,18 @@ uv run python -m src.zresearcher --file-search \
 uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
 
-# Force re-upload of all files (clears existing corpus and re-uploads)
+# Force re-upload of all files (deletes existing file search store and re-uploads)
 uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project" --force
 ```
+
+**Implementation Details:**
+- Uses Google Gemini File Search Stores for efficient RAG querying
+- Files are uploaded to a dedicated file search store (not passed in context)
+- Store is used as a tool during generation, avoiding context window limits
+- Supports large collections (tested with 70+ files)
+- Automatically extracts and displays grounding sources
+- Store name and upload state tracked in Project Config note
 
 **ZoteroResearcher - Cleanup**
 ```bash
@@ -214,14 +222,17 @@ src/
 **`zr_file_search.py`** - File Search Workflow (Google Gemini RAG)
 - `ZoteroFileSearcher` class (inherits from `ZoteroResearcherBase`)
   - `run_file_search()` - Query Gemini File Search (auto-uploads if needed) and save results
-  - `upload_files_to_gemini()` - Upload collection files to Gemini corpus
+  - `upload_files_to_gemini()` - Upload collection files to Gemini file search store
   - `load_query_request_from_zotero()` - Load query from Zotero note
-  - `_load_gemini_state_from_config()` - Load upload state from Project Config
-  - `_save_gemini_state_to_config()` - Save upload state to Project Config
+  - `_load_gemini_state_from_config()` - Load store name and upload state from Project Config
+  - `_save_gemini_state_to_config()` - Save store name and upload state to Project Config
+  - Uses Google Gemini File Search Stores (genai.Client API)
+  - Files uploaded to dedicated store, used as tool (not in context window)
   - Supports PDF, HTML, and TXT attachments
-  - Creates numbered Research Report notes in Zotero
+  - Creates numbered Research Report notes with grounding sources
   - Free storage and embedding; $0.15 per 1M tokens for indexing
   - Smart upload: Only uploads on first run or with --force flag
+  - Avoids context window limits by using file search as a tool
 
 **`zr_cleanup.py`** - Cleanup Workflow (Delete Projects & Summary Notes)
 - `ZoteroResearcherCleaner` class (inherits from `ZoteroResearcherBase`)
@@ -231,7 +242,7 @@ src/
   - `find_general_summary_notes_for_project()` - Find summaries for specific project (both standalone and child notes)
   - `find_all_general_summary_notes()` - Find all summary notes in collection (both standalone and child notes)
   - `find_all_project_subcollections()` - Find all ZResearcher subcollections
-  - `delete_gemini_files_for_project()` - Delete uploaded Gemini files for project
+  - `delete_gemini_files_for_project()` - Delete Gemini file search store for project
   - `count_items_in_collection()` - Count items by type (notes/files/items)
   - `preview_cleanup()` - Display preview of what will be deleted
   - `confirm_cleanup()` - Ask user for confirmation
@@ -241,7 +252,7 @@ src/
   - Continues cleanup even if individual deletions fail
   - Reports detailed summary of deleted items and errors
   - Deletes child summary notes attached to items (created by --build-summaries)
-  - Deletes Gemini files uploaded to Google File API
+  - Deletes Gemini file search stores (deletes all files in store)
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
