@@ -50,49 +50,31 @@ def list_stores(client):
         print(f"❌ Error listing stores: {e}")
         return []
 
-def delete_files_in_store(client, store_name):
-    """Delete all files in a file search store."""
-    try:
-        # List all files in the store
-        files = client.file_search_stores.list_files(file_search_store_name=store_name)
-        file_list = list(files)
-
-        if not file_list:
-            return 0
-
-        print(f"  Found {len(file_list)} file(s) in store, deleting...")
-        deleted = 0
-
-        for file in file_list:
-            try:
-                client.files.delete(name=file.name)
-                deleted += 1
-            except Exception as e:
-                print(f"    ⚠️  Failed to delete file {file.name}: {e}")
-
-        print(f"  ✅ Deleted {deleted}/{len(file_list)} files")
-        return deleted
-
-    except Exception as e:
-        print(f"  ⚠️  Error listing files in store: {e}")
-        return 0
-
 def delete_store(client, store_name):
-    """Delete a specific file search store (including all files in it)."""
+    """Delete a specific file search store."""
     try:
         print(f"Deleting store: {store_name}...")
 
-        # First, delete all files in the store
-        delete_files_in_store(client, store_name)
-
-        # Now delete the empty store
-        print(f"  Deleting store...")
+        # Try to delete the store
+        # Note: Google's API requires stores to be empty, but there's no public
+        # API to list/delete files in a store. Files expire automatically after
+        # 48 hours of inactivity, or the store can be deleted via the console.
         client.file_search_stores.delete(name=store_name)
         print(f"✅ Deleted successfully\n")
         return True
     except Exception as e:
-        print(f"❌ Error deleting store: {e}\n")
-        return False
+        error_msg = str(e)
+
+        # Check if it's a non-empty store error
+        if 'FAILED_PRECONDITION' in error_msg or 'non-empty' in error_msg.lower():
+            print(f"⚠️  Store is not empty and cannot be deleted")
+            print(f"   Files in stores are automatically deleted after 48 hours of inactivity")
+            print(f"   You can also delete stores manually via Google AI Studio:")
+            print(f"   https://aistudio.google.com/app/files\n")
+            return False
+        else:
+            print(f"❌ Error deleting store: {e}\n")
+            return False
 
 def delete_all_stores(client):
     """Delete all file search stores."""
