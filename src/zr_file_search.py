@@ -330,8 +330,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     # Upload to Gemini File Search Store with retry logic
                     print(f"  ☁️  Uploading to file search store...")
 
-                    max_retries = 3
-                    retry_delay = 2  # Start with 2 second delay
+                    max_retries = 5  # Increased from 3
+                    retry_delay = 5  # Start with 5 seconds (was 2)
                     upload_success = False
 
                     for retry in range(max_retries):
@@ -343,7 +343,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                             )
 
                             # Wait for upload operation to complete
-                            print(f"  ⏳ Waiting for upload to complete...")
+                            if retry > 0:
+                                print(f"  ⏳ Waiting for upload to complete (attempt {retry + 1}/{max_retries})...")
+                            else:
+                                print(f"  ⏳ Waiting for upload to complete...")
                             max_wait = 120  # 2 minutes
                             waited = 0
                             while not upload_op.done and waited < max_wait:
@@ -361,7 +364,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                                 uploaded = True
                                 upload_success = True
 
-                                print(f"  ✅ Uploaded successfully")
+                                if retry > 0:
+                                    print(f"  ✅ Uploaded successfully (after {retry + 1} attempts)")
+                                else:
+                                    print(f"  ✅ Uploaded successfully")
 
                             break  # Success, exit retry loop
 
@@ -369,15 +375,16 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                             if retry < max_retries - 1:
                                 # Check if it's a rate limit error
                                 error_msg = str(upload_error)
-                                if 'terminated' in error_msg.lower() or 'rate' in error_msg.lower():
-                                    print(f"  ⚠️  Rate limit hit, retrying in {retry_delay}s... (attempt {retry + 1}/{max_retries})")
+                                if 'terminated' in error_msg.lower() or 'rate' in error_msg.lower() or '429' in error_msg:
+                                    print(f"  ⚠️  Rate limit hit - waiting {retry_delay}s before retry (attempt {retry + 1}/{max_retries})")
                                     time.sleep(retry_delay)
-                                    retry_delay *= 2  # Exponential backoff
+                                    retry_delay = min(retry_delay * 2, 60)  # Exponential backoff, max 60s
                                 else:
                                     # Different error, don't retry
                                     raise
                             else:
                                 # Last retry failed
+                                print(f"  ⚠️  All {max_retries} retry attempts exhausted")
                                 raise
 
                     # Clean up temp file
