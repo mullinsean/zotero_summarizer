@@ -224,6 +224,7 @@ Guidelines:
 - For authors, look for bylines, author sections, or signatures
 - For publication, look for journal names, website names, publisher information, or source attribution
 - For dates, look for publication dates, copyright dates, or date stamps (format as YYYY-MM-DD if possible, or YYYY if only year is available)
+- Make sure no extra characters before or after a title or author name is included.  Be very precise.
 
 Format your response EXACTLY as follows:
 
