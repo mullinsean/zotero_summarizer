@@ -477,7 +477,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             # Generate response using file search store as a tool
             print(f"Generating response (this may take a moment)...")
             response = self.genai_client.models.generate_content(
-                model='gemini-2.5-pro-latest',
+                model='gemini-2.5-pro',
                 contents=query_request,
                 config=self.genai_types.GenerateContentConfig(
                     tools=[
