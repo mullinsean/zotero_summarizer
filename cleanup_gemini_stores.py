@@ -53,23 +53,53 @@ def list_stores(client):
         print(f"❌ Error listing stores: {e}")
         return []
 
-def delete_store(client, store_name, force=True):
+def delete_store(client, store_name):
     """Delete a specific file search store.
 
     Args:
         client: Gemini client
         store_name: Name of the store to delete
-        force: If True, delete non-empty stores (default: True)
     """
     try:
         print(f"Deleting store: {store_name}...")
 
-        # Delete the store using force=true to handle non-empty stores
-        client.file_search_stores.delete(name=store_name, force=force)
+        # Try different ways to pass force parameter
+        # Option 1: Try as config parameter
+        try:
+            client.file_search_stores.delete(name=store_name, config={'force': True})
+            print(f"✅ Deleted successfully (with config)\n")
+            return True
+        except TypeError:
+            pass  # config parameter not supported
+
+        # Option 2: Try direct REST API call if SDK doesn't support it
+        try:
+            # The Python SDK might not expose force parameter yet
+            # Try to access the underlying API client
+            if hasattr(client, '_api_client'):
+                # Make direct API call with force parameter
+                response = client._api_client.delete(
+                    f"{store_name}?force=true"
+                )
+                print(f"✅ Deleted successfully (direct API)\n")
+                return True
+        except:
+            pass
+
+        # Option 3: Regular delete (will fail if non-empty)
+        client.file_search_stores.delete(name=store_name)
         print(f"✅ Deleted successfully\n")
         return True
+
     except Exception as e:
-        print(f"❌ Error deleting store: {e}\n")
+        error_msg = str(e)
+        if 'FAILED_PRECONDITION' in error_msg or 'non-empty' in error_msg.lower():
+            print(f"⚠️  Store is not empty")
+            print(f"   The Python SDK doesn't support force delete yet.")
+            print(f"   Please delete manually via Google AI Studio:")
+            print(f"   https://aistudio.google.com/app/files\n")
+        else:
+            print(f"❌ Error deleting store: {e}\n")
         return False
 
 def delete_all_stores(client):
