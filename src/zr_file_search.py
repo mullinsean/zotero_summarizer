@@ -57,9 +57,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         # Import Gemini SDK
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_api_key)
+            from google import genai
+            from google.genai import types
             self.genai = genai
+            self.genai_types = types
+            self.genai_client = genai.Client(api_key=gemini_api_key)
         except ImportError:
             raise ImportError(
                 "google-generativeai package not found. "
@@ -67,7 +69,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             )
 
         # Gemini File Search state
-        self.uploaded_files = {}  # Map of item_key -> file object
+        self.file_search_store_name = None  # File search store name
+        self.uploaded_files = {}  # Map of item_key -> file name for tracking
 
     def _get_research_report_note_title(self, report_number: int = 1) -> str:
         """Get project-specific research report note title."""
@@ -78,21 +81,27 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
     def _load_gemini_state_from_config(self, collection_key: str) -> Dict:
         """
-        Load Gemini file upload state from Project Config.
+        Load Gemini file search state from Project Config.
 
         Args:
             collection_key: Parent collection key
 
         Returns:
-            Dict with gemini_uploaded_files (file names)
+            Dict with file_search_store_name and uploaded_files
         """
         try:
             config = self.load_project_config_from_zotero(collection_key)
 
             # Extract Gemini-specific state
             gemini_state = {
+                'file_search_store_name': None,
                 'uploaded_files': {}
             }
+
+            # Parse file search store name
+            store_name = config.get('gemini_file_search_store', '')
+            if store_name:
+                gemini_state['file_search_store_name'] = store_name
 
             # Parse uploaded files JSON if present
             uploaded_files_json = config.get('gemini_uploaded_files', '')
@@ -107,11 +116,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         except FileNotFoundError:
             # Config doesn't exist yet - return empty state
-            return {'uploaded_files': {}}
+            return {'file_search_store_name': None, 'uploaded_files': {}}
 
     def _save_gemini_state_to_config(self, collection_key: str):
         """
-        Save Gemini file upload state to Project Config note.
+        Save Gemini file search state to Project Config note.
 
         Args:
             collection_key: Parent collection key
@@ -132,10 +141,15 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         # Update or add Gemini state lines
         lines = content.split('\n')
         new_lines = []
+        found_store = False
         found_files = False
 
         for line in lines:
-            if line.strip().startswith('gemini_uploaded_files='):
+            if line.strip().startswith('gemini_file_search_store='):
+                if self.file_search_store_name:
+                    new_lines.append(f"gemini_file_search_store={self.file_search_store_name}")
+                found_store = True
+            elif line.strip().startswith('gemini_uploaded_files='):
                 uploaded_files_json = json.dumps(self.uploaded_files)
                 new_lines.append(f"gemini_uploaded_files={uploaded_files_json}")
                 found_files = True
@@ -143,7 +157,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 new_lines.append(line)
 
         # Add new entries if not found
-        if not found_files:
+        if not found_store or not found_files:
             # Insert before the notes section
             insert_idx = len(new_lines)
             for i, line in enumerate(new_lines):
@@ -157,11 +171,20 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 new_lines.insert(insert_idx + 1, '# ============================================================')
                 new_lines.insert(insert_idx + 2, '# Gemini File API State (managed automatically)')
                 new_lines.insert(insert_idx + 3, '# ============================================================')
-                uploaded_files_json = json.dumps(self.uploaded_files)
-                new_lines.insert(insert_idx + 4, f'gemini_uploaded_files={uploaded_files_json}')
+                idx = insert_idx + 4
+                if not found_store and self.file_search_store_name:
+                    new_lines.insert(idx, f'gemini_file_search_store={self.file_search_store_name}')
+                    idx += 1
+                if not found_files:
+                    uploaded_files_json = json.dumps(self.uploaded_files)
+                    new_lines.insert(idx, f'gemini_uploaded_files={uploaded_files_json}')
             else:
-                uploaded_files_json = json.dumps(self.uploaded_files)
-                new_lines.insert(insert_idx, f'gemini_uploaded_files={uploaded_files_json}')
+                if not found_store and self.file_search_store_name:
+                    new_lines.insert(insert_idx, f'gemini_file_search_store={self.file_search_store_name}')
+                    insert_idx += 1
+                if not found_files:
+                    uploaded_files_json = json.dumps(self.uploaded_files)
+                    new_lines.insert(insert_idx, f'gemini_uploaded_files={uploaded_files_json}')
 
         # Update note content using generic method
         updated_content = '\n'.join(new_lines)
@@ -174,7 +197,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
     def upload_files_to_gemini(self, collection_key: str) -> bool:
         """
-        Upload all compatible sources from collection to Google Gemini File API.
+        Upload all compatible sources from collection to Google Gemini File Search Store.
 
         Args:
             collection_key: Collection key to process
@@ -183,25 +206,46 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             True if upload successful
         """
         print(f"\n{'='*80}")
-        print(f"Uploading Files to Google Gemini File API")
+        print(f"Uploading Files to Google Gemini File Search Store")
         print(f"Project: {self.project_name}")
         print(f"{'='*80}\n")
 
         # Load existing Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
+        self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Force rebuild: delete old files
-        if self.force_rebuild and self.uploaded_files:
-            print(f"🗑️  Force rebuild: Deleting {len(self.uploaded_files)} existing files...")
-            for item_key, file_name in list(self.uploaded_files.items()):
-                try:
-                    self.genai.delete_file(file_name)
-                    print(f"  Deleted: {file_name}")
-                except Exception as e:
-                    print(f"  Error deleting {file_name}: {e}")
-            self.uploaded_files = {}
+        # Force rebuild: delete old store and create new one
+        if self.force_rebuild and self.file_search_store_name:
+            print(f"🗑️  Force rebuild: Deleting existing file search store...")
+            try:
+                self.genai_client.file_search_stores.delete(name=self.file_search_store_name)
+                print(f"  Deleted store: {self.file_search_store_name}")
+                self.file_search_store_name = None
+                self.uploaded_files = {}
+            except Exception as e:
+                print(f"  Error deleting store: {e}")
+                # Continue anyway - we'll create a new store
+                self.file_search_store_name = None
+                self.uploaded_files = {}
             print()
+
+        # Create file search store if needed
+        if not self.file_search_store_name:
+            print(f"Creating new file search store...")
+            try:
+                store = self.genai_client.file_search_stores.create(
+                    display_name=f"ZResearcher: {self.project_name}"
+                )
+                self.file_search_store_name = store.name
+                print(f"✅ Created store: {self.file_search_store_name}\n")
+            except Exception as e:
+                print(f"❌ Error creating file search store: {e}")
+                import traceback
+                traceback.print_exc()
+                return False
+        else:
+            print(f"ℹ️  Using existing file search store: {self.file_search_store_name}\n")
 
         # Get collection items
         print(f"Loading collection items...")
@@ -282,20 +326,33 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     with open(temp_path, 'wb') as f:
                         f.write(content)
 
-                    # Upload to Gemini File API
-                    print(f"  ☁️  Uploading to Gemini...")
+                    # Upload to Gemini File Search Store
+                    print(f"  ☁️  Uploading to file search store...")
 
-                    file_obj = self.genai.upload_file(
-                        path=temp_path,
-                        display_name=f"{item_title} - {attachment_title}"
+                    upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
+                        file_search_store_name=self.file_search_store_name,
+                        file=temp_path
                     )
 
-                    # Track uploaded file
-                    self.uploaded_files[item_key] = file_obj.name
-                    uploaded_count += 1
-                    uploaded = True
+                    # Wait for upload operation to complete
+                    print(f"  ⏳ Waiting for upload to complete...")
+                    max_wait = 120  # 2 minutes
+                    waited = 0
+                    while not upload_op.done and waited < max_wait:
+                        time.sleep(5)
+                        waited += 5
+                        upload_op = self.genai_client.operations.get(name=upload_op.name)
 
-                    print(f"  ✅ Uploaded successfully (File ID: {file_obj.name})")
+                    if not upload_op.done:
+                        print(f"  ⚠️  Upload operation timed out after {max_wait}s")
+                        error_count += 1
+                    else:
+                        # Track uploaded file
+                        self.uploaded_files[item_key] = temp_filename
+                        uploaded_count += 1
+                        uploaded = True
+
+                        print(f"  ✅ Uploaded successfully")
 
                     # Clean up temp file
                     os.remove(temp_path)
@@ -323,10 +380,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"\n{'='*80}")
         print(f"Upload Summary")
         print(f"{'='*80}")
+        print(f"  Store: {self.file_search_store_name}")
         print(f"  Uploaded: {uploaded_count}")
         print(f"  Skipped: {skipped_count}")
         print(f"  Errors: {error_count}")
-        print(f"  Total in corpus: {len(self.uploaded_files)}")
+        print(f"  Total files in store: {len(self.uploaded_files)}")
         print(f"{'='*80}\n")
 
         # Save Gemini state to config
@@ -377,11 +435,12 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         # Load Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
+        self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Auto-upload if no files uploaded
-        if not self.uploaded_files:
-            print(f"ℹ️  No files uploaded yet. Uploading collection to Gemini...\n")
+        # Auto-upload if no store exists
+        if not self.file_search_store_name:
+            print(f"ℹ️  No file search store found. Creating store and uploading files...\n")
 
             # Upload files
             success = self.upload_files_to_gemini(collection_key)
@@ -394,8 +453,9 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             print(f"Files uploaded successfully. Proceeding with query...")
             print(f"{'='*80}\n")
         else:
-            print(f"ℹ️  Using existing uploaded files")
-            print(f"   Files uploaded: {len(self.uploaded_files)}\n")
+            print(f"ℹ️  Using existing file search store")
+            print(f"   Store: {self.file_search_store_name}")
+            print(f"   Files: {len(self.uploaded_files)}\n")
 
         # Load query request
         print(f"Loading query request from Zotero...")
@@ -407,56 +467,44 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             print(f"❌ {e}")
             return None
 
-        # Get file objects and wait for them to be ACTIVE
-        print(f"Checking file status...")
-        file_objects = []
-
-        for item_key, file_name in self.uploaded_files.items():
-            try:
-                file_obj = self.genai.get_file(file_name)
-
-                # Wait for file to be ACTIVE
-                max_wait = 120  # 2 minutes
-                waited = 0
-                while file_obj.state.name == 'PROCESSING' and waited < max_wait:
-                    print(f"  ⏳ {file_obj.display_name} is still processing... (waited {waited}s)")
-                    time.sleep(5)
-                    waited += 5
-                    file_obj = self.genai.get_file(file_name)
-
-                if file_obj.state.name == 'ACTIVE':
-                    file_objects.append(file_obj)
-                    print(f"  ✅ {file_obj.display_name} is ACTIVE")
-                elif file_obj.state.name == 'FAILED':
-                    print(f"  ❌ {file_obj.display_name} FAILED: {file_obj.state}")
-                else:
-                    print(f"  ⚠️  {file_obj.display_name} status: {file_obj.state.name}")
-
-            except Exception as e:
-                print(f"  ⚠️  Error getting file {file_name}: {e}")
-
-        if not file_objects:
-            print(f"❌ No active files available for querying")
-            return None
-
-        print(f"\n✅ {len(file_objects)} files ready for querying\n")
-
-        # Run Gemini query with files
-        print(f"Running Gemini query with {len(file_objects)} files...")
+        # Run Gemini query using file search store as a tool
+        print(f"Running Gemini query with file search store...")
+        print(f"Files available: {len(self.uploaded_files)}\n")
 
         try:
-            # Create model
-            model = self.genai.GenerativeModel('gemini-2.5-pro')
-
-            # Build prompt with query and file objects
-            prompt_parts = [query_request] + file_objects
-
-            # Generate response
+            # Generate response using file search store as a tool
             print(f"Generating response (this may take a moment)...")
-            response = model.generate_content(prompt_parts, request_options={'timeout': 600})
+            response = self.genai_client.models.generate_content(
+                model='gemini-2.5-pro-latest',
+                contents=query_request,
+                config=self.genai_types.GenerateContentConfig(
+                    tools=[
+                        self.genai_types.Tool(
+                            file_search=self.genai_types.FileSearch(
+                                file_search_store_names=[self.file_search_store_name]
+                            )
+                        )
+                    ]
+                )
+            )
 
             # Extract response text
             response_text = response.text if hasattr(response, 'text') else str(response)
+
+            # Extract grounding sources if available
+            sources = []
+            if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'grounding_metadata'):
+                    grounding = candidate.grounding_metadata
+                    if hasattr(grounding, 'grounding_chunks'):
+                        sources = {
+                            chunk.retrieved_context.title
+                            for chunk in grounding.grounding_chunks
+                            if hasattr(chunk, 'retrieved_context') and hasattr(chunk.retrieved_context, 'title')
+                        }
+                        if sources:
+                            print(f"📚 Grounding sources: {', '.join(sources)}\n")
 
             print(f"✅ Query completed\n")
             print(f"Response preview: {response_text[:500]}...\n" if len(response_text) > 500 else f"Response: {response_text}\n")
@@ -481,6 +529,18 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         # Format report
         report_title = self._get_research_report_note_title(report_number)
 
+        sources_section = ""
+        if sources:
+            sources_list = "\n".join([f"- {source}" for source in sorted(sources)])
+            sources_section = f"""
+
+## Grounding Sources
+
+{sources_list}
+
+---
+"""
+
         report_content = f"""# {report_title}
 
 **Project:** {self.project_name}
@@ -498,6 +558,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 ## Results
 
 {response_text}
+{sources_section}
 
 ---
 
