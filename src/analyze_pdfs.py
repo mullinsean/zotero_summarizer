@@ -462,9 +462,19 @@ def main():
 
     # Get configuration from environment
     library_id = os.getenv('ZOTERO_LIBRARY_ID')
-    library_type = os.getenv('ZOTERO_LIBRARY_TYPE', 'user')
+    library_type_raw = os.getenv('ZOTERO_LIBRARY_TYPE', 'user')
     api_key = os.getenv('ZOTERO_API_KEY')
     collection_key = args.collection or os.getenv('ZOTERO_COLLECTION_KEY')
+
+    # Sanitize library_type: strip quotes and whitespace
+    library_type = library_type_raw.strip().strip("'\"") if library_type_raw else 'user'
+
+    # Validate library_type
+    if library_type not in ['user', 'group']:
+        print(f"Error: Invalid ZOTERO_LIBRARY_TYPE: '{library_type_raw}'")
+        print("Must be either 'user' or 'group' (without quotes in .env file)")
+        print(f"Example .env entry: ZOTERO_LIBRARY_TYPE=group")
+        return
 
     # Validate required configuration
     if not library_id or not api_key:

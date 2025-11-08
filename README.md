@@ -28,6 +28,8 @@ All configuration and outputs are stored in Zotero (no external files required).
    ANTHROPIC_API_KEY=your_anthropic_key
    ```
 
+   **Note:** Do not use quotes around values in the `.env` file. For group libraries, use `ZOTERO_LIBRARY_TYPE=group`
+
 3. **Initialize a project:**
    ```bash
    uv run python -m src.zresearcher --init-collection \

@@ -671,9 +671,18 @@ def main():
 
     # Get required credentials
     library_id = os.getenv('ZOTERO_LIBRARY_ID')
-    library_type = os.getenv('ZOTERO_LIBRARY_TYPE', 'user')
+    library_type_raw = os.getenv('ZOTERO_LIBRARY_TYPE', 'user')
     api_key = os.getenv('ZOTERO_API_KEY')
     anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+
+    # Sanitize library_type: strip quotes and whitespace
+    library_type = library_type_raw.strip().strip("'\"") if library_type_raw else 'user'
+
+    # Validate library_type
+    if library_type not in ['user', 'group']:
+        print(f"Error: Invalid ZOTERO_LIBRARY_TYPE: '{library_type_raw}'")
+        print("Must be either 'user' or 'group' (without quotes)")
+        sys.exit(1)
 
     if not all([library_id, api_key, anthropic_api_key]):
         print("Error: Missing required environment variables")
