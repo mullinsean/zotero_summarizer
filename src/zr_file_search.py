@@ -219,8 +219,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         if self.force_rebuild and self.file_search_store_name:
             print(f"🗑️  Force rebuild: Deleting existing file search store...")
             try:
-                # Use force=true to delete non-empty stores (removes all documents)
-                self.genai_client.file_search_stores.delete(name=self.file_search_store_name, force=True)
+                # Use config={'force': True} to delete non-empty stores (removes all documents)
+                self.genai_client.file_search_stores.delete(
+                    name=self.file_search_store_name,
+                    config={'force': True}
+                )
                 print(f"  Deleted store: {self.file_search_store_name}")
                 self.file_search_store_name = None
                 self.uploaded_files = {}

@@ -347,10 +347,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                     print("  ℹ️  No Gemini file search store found in project config")
                 return result
 
-            # Delete the file search store using force=true (deletes all documents in it)
+            # Delete the file search store using config={'force': True} (deletes all documents in it)
             print(f"  🗑️  Deleting Gemini file search store...")
             try:
-                genai_client.file_search_stores.delete(name=store_name, force=True)
+                genai_client.file_search_stores.delete(name=store_name, config={'force': True})
                 result['deleted'] = 1
                 if self.verbose:
                     print(f"    ✅ Deleted store: {store_name}")
