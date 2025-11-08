@@ -75,24 +75,20 @@ uv run python -m src.zresearcher --query-summary \
 
 **ZoteroResearcher - File Search (Google Gemini RAG)**
 ```bash
-# Step 1: Upload files to Gemini corpus (one-time operation)
-uv run python -m src.zresearcher --file-search upload \
-    --collection COLLECTION_KEY --project "My Research Project"
-
-# Force re-upload of all files
-uv run python -m src.zresearcher --file-search upload \
-    --collection COLLECTION_KEY --project "My Research Project" --force
-
-# Step 2: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
+# Step 1: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
 #   - 【Query Request】 (your File Search query)
 
-# Step 3: Run File Search query (RAG-based querying)
-uv run python -m src.zresearcher --file-search query \
+# Step 2: Run File Search query (auto-uploads files if needed, then queries)
+uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project"
 
 # Verbose mode for detailed logging
-uv run python -m src.zresearcher --file-search query \
+uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
+
+# Force re-upload of all files (clears existing corpus and re-uploads)
+uv run python -m src.zresearcher --file-search \
+    --collection COLLECTION_KEY --project "My Research Project" --force
 ```
 
 **Diagnostic Utility**
@@ -189,14 +185,15 @@ src/
 
 **`zr_file_search.py`** - File Search Workflow (Google Gemini RAG)
 - `ZoteroFileSearcher` class (inherits from `ZoteroResearcherBase`)
-  - `upload_files_to_gemini()` - Upload collection files to Gemini corpus (one-time)
-  - `run_file_search()` - Query Gemini File Search and save results
+  - `run_file_search()` - Query Gemini File Search (auto-uploads if needed) and save results
+  - `upload_files_to_gemini()` - Upload collection files to Gemini corpus
   - `load_query_request_from_zotero()` - Load query from Zotero note
   - `_load_gemini_state_from_config()` - Load upload state from Project Config
   - `_save_gemini_state_to_config()` - Save upload state to Project Config
   - Supports PDF, HTML, and TXT attachments
   - Creates numbered Research Report notes in Zotero
   - Free storage and embedding; $0.15 per 1M tokens for indexing
+  - Smart upload: Only uploads on first run or with --force flag
 
 ### Legacy Modules (Deprecated - see `/old/`)
 

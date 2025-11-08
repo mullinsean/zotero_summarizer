@@ -171,7 +171,7 @@ specific studies and include quantitative results where available.
 
 ---
 Template created by ZoteroResearcher
-Edit this note before running --file-search query"""
+Edit this note before running --file-search"""
 
         query_request_key = self.create_standalone_note(
             subcollection_key,

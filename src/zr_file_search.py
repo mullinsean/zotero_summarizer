@@ -445,6 +445,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
     def run_file_search(self, collection_key: str) -> Optional[str]:
         """
         Run Gemini File Search query and save results as Research Report.
+        Automatically uploads files if not already uploaded.
 
         Args:
             collection_key: Collection key to process
@@ -462,18 +463,23 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         self.corpus_name = gemini_state['corpus_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        if not self.corpus_name:
-            print("❌ No Gemini corpus found. Run file upload first:")
-            print(f"   python -m src.zresearcher --file-search upload --collection {collection_key} --project \"{self.project_name}\"")
-            return None
+        # Auto-upload if no corpus or no files uploaded
+        if not self.corpus_name or not self.uploaded_files:
+            print(f"ℹ️  No files uploaded yet. Uploading collection to Gemini...\n")
 
-        if not self.uploaded_files:
-            print("❌ No files uploaded to Gemini corpus. Run file upload first:")
-            print(f"   python -m src.zresearcher --file-search upload --collection {collection_key} --project \"{self.project_name}\"")
-            return None
+            # Upload files
+            success = self.upload_files_to_gemini(collection_key)
 
-        print(f"ℹ️  Using Gemini corpus: {self.corpus_name}")
-        print(f"   Files in corpus: {len(self.uploaded_files)}\n")
+            if not success:
+                print(f"❌ File upload failed. Cannot proceed with query.")
+                return None
+
+            print(f"\n{'='*80}")
+            print(f"Files uploaded successfully. Proceeding with query...")
+            print(f"{'='*80}\n")
+        else:
+            print(f"ℹ️  Using existing Gemini corpus: {self.corpus_name}")
+            print(f"   Files in corpus: {len(self.uploaded_files)}\n")
 
         # Load query request
         print(f"Loading query request from Zotero...")

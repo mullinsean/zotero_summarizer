@@ -62,11 +62,8 @@ Examples:
   # Rebuild all summaries for a project
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" --force
 
-  # File Search: Upload files to Gemini
-  python zresearcher.py --file-search upload --collection KEY --project "AI Productivity"
-
-  # File Search: Run query
-  python zresearcher.py --file-search query --collection KEY --project "AI Productivity"
+  # File Search: Run Gemini RAG query (auto-uploads if needed)
+  python zresearcher.py --file-search --collection KEY --project "AI Productivity"
         """
     )
 
@@ -104,9 +101,8 @@ Examples:
     )
     mode_group.add_argument(
         '--file-search',
-        type=str,
-        choices=['upload', 'query'],
-        help='Google Gemini File Search: upload files or run query (requires GEMINI_API_KEY)'
+        action='store_true',
+        help='Google Gemini File Search: query sources using RAG (auto-uploads if needed, requires GEMINI_API_KEY)'
     )
 
     # Common arguments
@@ -306,16 +302,12 @@ Examples:
             verbose=args.verbose
         )
 
-        if args.file_search == 'upload':
-            # Upload files to Gemini
-            searcher.upload_files_to_gemini(collection_key)
-        elif args.file_search == 'query':
-            # Run query using Gemini File Search
-            result = searcher.run_file_search(collection_key)
-            if result:
-                print(f"✅ File search query completed successfully")
-            else:
-                print(f"❌ File search query failed")
+        # Run file search (auto-uploads if needed)
+        result = searcher.run_file_search(collection_key)
+        if result:
+            print(f"✅ File search query completed successfully")
+        else:
+            print(f"❌ File search query failed")
         return
 
 
