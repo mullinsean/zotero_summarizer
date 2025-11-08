@@ -116,30 +116,14 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         Args:
             collection_key: Parent collection key
         """
-        subcollection_name = self._get_subcollection_name()
         note_title = self._get_project_config_note_title()
 
-        # Get project-specific subcollection
-        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
-        if not subcollection_key:
-            raise FileNotFoundError(
-                f"{subcollection_name} subcollection not found. "
-                f"Run --init-collection --project \"{self.project_name}\" first."
-            )
-
-        # Get config note
-        notes = self.get_collection_notes(subcollection_key)
-        config_note = None
-
-        for note in notes:
-            title = self.get_note_title_from_html(note['data']['note'])
-            if note_title in title:
-                config_note = note
-                break
-
+        # Find the config note
+        config_note = self.get_note_from_subcollection(collection_key, note_title)
         if not config_note:
             raise FileNotFoundError(
-                f"{note_title} not found in {subcollection_name} subcollection."
+                f"{note_title} not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
             )
 
         # Extract existing content
@@ -179,18 +163,14 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 uploaded_files_json = json.dumps(self.uploaded_files)
                 new_lines.insert(insert_idx, f'gemini_uploaded_files={uploaded_files_json}')
 
-        # Update note content
+        # Update note content using generic method
         updated_content = '\n'.join(new_lines)
-
-        # Wrap in code block to preserve formatting
-        updated_html = self.markdown_to_html(f"```\n{updated_content}\n```")
-
-        # Update the note
-        config_note['data']['note'] = updated_html
-        self.zot.update_item(config_note)
-
-        if self.verbose:
-            print(f"  ✅ Updated Gemini state in {note_title}")
+        self.update_note_in_subcollection(
+            collection_key,
+            note_title,
+            updated_content,
+            preserve_formatting=True
+        )
 
     def upload_files_to_gemini(self, collection_key: str) -> bool:
         """
@@ -370,46 +350,13 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        subcollection_name = self._get_subcollection_name()
-        note_title = self._get_query_request_note_title()
-
-        # Get project-specific subcollection
-        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
-        if not subcollection_key:
-            raise FileNotFoundError(
-                f"{subcollection_name} subcollection not found. "
-                f"Run --init-collection --project \"{self.project_name}\" first."
-            )
-
-        # Get all notes in subcollection
-        notes = self.get_collection_notes(subcollection_key)
-
-        for note in notes:
-            title = self.get_note_title_from_html(note['data']['note'])
-            if note_title in title:
-                content = self.extract_text_from_note_html(note['data']['note'])
-
-                # Check if still template
-                if '[TODO:' in content:
-                    raise ValueError(
-                        f"{note_title} still contains template. "
-                        "Please edit the note in Zotero before running file search."
-                    )
-
-                # Remove template footer if present
-                if '---' in content:
-                    content = content.split('---')[0]
-
-                # Remove title line
-                lines = content.split('\n')
-                if lines and note_title in lines[0]:
-                    content = '\n'.join(lines[1:])
-
-                return content.strip()
-
-        raise FileNotFoundError(
-            f"{note_title} not found in {subcollection_name} subcollection. "
-            f"Please create this note in Zotero with your query."
+        return self.load_note_from_subcollection(
+            collection_key,
+            self._get_query_request_note_title(),
+            check_todo=True,
+            remove_title_line=True,
+            remove_footer=True,
+            operation_name="running file search"
         )
 
     def run_file_search(self, collection_key: str) -> Optional[str]:

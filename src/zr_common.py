@@ -607,3 +607,149 @@ gemini_uploaded_files={}
                 self.sonnet_model = config['sonnet_model']
             elif self.verbose:
                 print(f"  ⚠️  Invalid sonnet_model: must start with 'claude-'")
+
+    def get_note_from_subcollection(
+        self,
+        collection_key: str,
+        note_title: str
+    ) -> Optional[Dict]:
+        """
+        Find and return a note by title from the project subcollection.
+
+        Args:
+            collection_key: Parent collection key
+            note_title: The exact note title to search for (use _get_*_note_title() methods)
+
+        Returns:
+            The note item dict, or None if not found
+
+        Raises:
+            FileNotFoundError: If project subcollection doesn't exist
+        """
+        subcollection_name = self._get_subcollection_name()
+
+        # Get project-specific subcollection
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            raise FileNotFoundError(
+                f"{subcollection_name} subcollection not found. "
+                f"Run --init-collection --project \"{self.project_name}\" first."
+            )
+
+        # Get all notes in subcollection
+        notes = self.get_collection_notes(subcollection_key)
+
+        # Find note by title
+        for note in notes:
+            title = self.get_note_title_from_html(note['data']['note'])
+            if note_title in title:
+                return note
+
+        return None
+
+    def load_note_from_subcollection(
+        self,
+        collection_key: str,
+        note_title: str,
+        check_todo: bool = True,
+        remove_title_line: bool = True,
+        remove_footer: bool = True,
+        operation_name: str = None
+    ) -> str:
+        """
+        Load and clean text content from a note in the project subcollection.
+
+        This is a generic method that consolidates common note loading logic
+        used across multiple workflows (build, query, file search).
+
+        Args:
+            collection_key: Parent collection key
+            note_title: The exact note title to search for (use _get_*_note_title() methods)
+            check_todo: If True, raise error if note contains [TODO: markers
+            remove_title_line: If True, remove first line if it matches note_title
+            remove_footer: If True, remove content after '---' separator
+            operation_name: Human-readable operation name for error messages (e.g., "building summaries")
+
+        Returns:
+            Cleaned note content as text
+
+        Raises:
+            FileNotFoundError: If subcollection or note not found
+            ValueError: If note contains [TODO: markers and check_todo=True
+        """
+        subcollection_name = self._get_subcollection_name()
+
+        # Find the note
+        note = self.get_note_from_subcollection(collection_key, note_title)
+        if not note:
+            error_msg = f"{note_title} not found in {subcollection_name} subcollection. "
+            error_msg += f"Run --init-collection --project \"{self.project_name}\" first."
+            if operation_name:
+                error_msg += f" Edit the note before {operation_name}."
+            raise FileNotFoundError(error_msg)
+
+        # Extract text content
+        content = self.extract_text_from_note_html(note['data']['note'])
+
+        # Check for template placeholder
+        if check_todo and '[TODO:' in content:
+            error_msg = f"{note_title} still contains template. "
+            error_msg += "Please edit the note in Zotero"
+            if operation_name:
+                error_msg += f" before {operation_name}"
+            error_msg += "."
+            raise ValueError(error_msg)
+
+        # Remove footer separator if present
+        if remove_footer and '---' in content:
+            content = content.split('---')[0]
+
+        # Remove title line if present
+        if remove_title_line:
+            lines = content.split('\n')
+            if lines and note_title in lines[0]:
+                content = '\n'.join(lines[1:])
+
+        return content.strip()
+
+    def update_note_in_subcollection(
+        self,
+        collection_key: str,
+        note_title: str,
+        new_content: str,
+        preserve_formatting: bool = True
+    ) -> None:
+        """
+        Update a note's content in the project subcollection.
+
+        Args:
+            collection_key: Parent collection key
+            note_title: The exact note title to search for
+            new_content: New text content (markdown)
+            preserve_formatting: If True, wrap in code block to preserve formatting
+
+        Raises:
+            FileNotFoundError: If subcollection or note not found
+        """
+        subcollection_name = self._get_subcollection_name()
+
+        # Find the note
+        note = self.get_note_from_subcollection(collection_key, note_title)
+        if not note:
+            raise FileNotFoundError(
+                f"{note_title} not found in {subcollection_name} subcollection."
+            )
+
+        # Convert to HTML
+        if preserve_formatting:
+            # Wrap in code block to preserve formatting
+            updated_html = self.markdown_to_html(f"```\n{new_content}\n```")
+        else:
+            updated_html = self.markdown_to_html(new_content)
+
+        # Update the note
+        note['data']['note'] = updated_html
+        self.zot.update_item(note)
+
+        if self.verbose:
+            print(f"  ✅ Updated {note_title}")
