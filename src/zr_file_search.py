@@ -503,19 +503,46 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Files available: {len(self.uploaded_files)}\n")
 
         try:
-            # Generate response using file search store as a tool
-            print(f"Generating response (this may take a moment)...")
-            response = self.genai_client.models.generate_content(
-                model='gemini-2.5-pro',
-                contents=query_request,
-                config=self.genai_types.GenerateContentConfig(
-                    tools=[
-                        self.genai_types.Tool(
-                            file_search={'file_search_store_names': [self.file_search_store_name]}
+            # Try gemini-2.5-pro first, fallback to flash if overloaded
+            models_to_try = ['gemini-2.5-pro', 'gemini-2.5-flash']
+            response = None
+            last_error = None
+
+            for model_name in models_to_try:
+                try:
+                    print(f"Generating response with {model_name} (this may take a moment)...")
+
+                    response = self.genai_client.models.generate_content(
+                        model=model_name,
+                        contents=query_request,
+                        config=self.genai_types.GenerateContentConfig(
+                            tools=[
+                                self.genai_types.Tool(
+                                    file_search={'file_search_store_names': [self.file_search_store_name]}
+                                )
+                            ]
                         )
-                    ]
-                )
-            )
+                    )
+
+                    # Success!
+                    print(f"✅ Successfully generated response with {model_name}")
+                    break
+
+                except Exception as model_error:
+                    error_str = str(model_error)
+                    last_error = model_error
+
+                    # Check if it's a 503 overloaded error
+                    if '503' in error_str and 'overloaded' in error_str.lower():
+                        print(f"⚠️  {model_name} is overloaded, trying next model...")
+                        continue
+                    else:
+                        # Different error, don't try other models
+                        raise
+
+            if response is None:
+                # All models failed
+                raise last_error if last_error else Exception("All models failed")
 
             # Extract response text
             response_text = response.text if hasattr(response, 'text') else str(response)
@@ -539,9 +566,19 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             print(f"Response preview: {response_text[:500]}...\n" if len(response_text) > 500 else f"Response: {response_text}\n")
 
         except Exception as e:
-            print(f"❌ Error running Gemini query: {e}")
-            import traceback
-            traceback.print_exc()
+            error_str = str(e)
+
+            # Provide helpful error messages
+            if '503' in error_str and 'overloaded' in error_str.lower():
+                print(f"❌ All Gemini models are currently overloaded.")
+                print(f"   This is a temporary issue on Google's side.")
+                print(f"   Please try again in a few minutes.")
+            else:
+                print(f"❌ Error running Gemini query: {e}")
+
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
             return None
 
         # Create Research Report note
