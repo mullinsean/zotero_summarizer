@@ -544,7 +544,7 @@ The `ZoteroBaseProcessor` class provides shared functionality for all processors
 ```
 # Zotero Configuration
 ZOTERO_LIBRARY_ID=<library_id>      # User or group ID
-ZOTERO_LIBRARY_TYPE=user|group      # Type of library
+ZOTERO_LIBRARY_TYPE=user|group      # Type of library (user or group - no quotes!)
 ZOTERO_API_KEY=<api_key>            # Zotero API authentication key
 ZOTERO_COLLECTION_KEY=<collection>  # Collection to process
 
@@ -552,6 +552,10 @@ ZOTERO_COLLECTION_KEY=<collection>  # Collection to process
 ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude (required for most features)
 GEMINI_API_KEY=<api_key>            # Google Gemini API key (required for --file-search)
 ```
+
+**Important:** Do not use quotes around values in `.env` files. For example:
+- ✅ Correct: `ZOTERO_LIBRARY_TYPE=group`
+- ❌ Wrong: `ZOTERO_LIBRARY_TYPE='group'` (quotes will be included in the value)
 
 ### Key Dependencies
 - **pyzotero** - Zotero API client
