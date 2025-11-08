@@ -64,8 +64,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             self.genai_client = genai.Client(api_key=gemini_api_key)
         except ImportError:
             raise ImportError(
-                "google-generativeai package not found. "
-                "Install it with: pip install google-generativeai"
+                "google-genai package not found. "
+                "Install it with: uv pip install google-genai"
             )
 
         # Gemini File Search state

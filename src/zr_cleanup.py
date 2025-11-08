@@ -328,7 +328,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                 genai_client = genai.Client(api_key=gemini_api_key)
             except ImportError:
                 if self.verbose:
-                    print("  ⚠️  google-generativeai package not found, skipping Gemini cleanup")
+                    print("  ⚠️  google-genai package not found, skipping Gemini cleanup")
                 return result
 
             # Load project config to get file search store
