@@ -12,12 +12,169 @@ from typing import Optional, Dict, List, Tuple
 # Handle both relative and absolute imports
 try:
     from .zr_common import ZoteroResearcherBase
+    from .zr_prompts import metadata_extraction_prompt
 except ImportError:
     from zr_common import ZoteroResearcherBase
+    from zr_prompts import metadata_extraction_prompt
 
 
 class ZoteroResearcherOrganizer(ZoteroResearcherBase):
     """Handles organization of sources to ensure acceptable attachments exist."""
+
+    def _extract_content_from_attachment(self, attachment_item: Dict) -> Optional[str]:
+        """
+        Extract text content from an attachment (first 10,000 characters).
+
+        Args:
+            attachment_item: The attachment item
+
+        Returns:
+            Extracted text content (up to 10,000 chars), or None if extraction fails
+        """
+        try:
+            attachment_data = attachment_item['data']
+            attachment_key = attachment_item['key']
+            content_type = attachment_data.get('contentType', '')
+
+            # Download attachment content
+            raw_content = self.download_attachment(attachment_key)
+            if not raw_content:
+                return None
+
+            # Extract text based on content type
+            extracted_text = None
+
+            if content_type == 'application/pdf' or self.is_pdf_attachment(attachment_item):
+                extracted_text = self.extract_text_from_pdf(raw_content)
+            elif content_type in ['text/html', 'application/xhtml+xml'] or self.is_html_attachment(attachment_item):
+                extracted_text = self.extract_text_from_html(raw_content)
+            elif content_type == 'text/plain' or self.is_txt_attachment(attachment_item):
+                extracted_text = self.extract_text_from_txt(raw_content)
+            else:
+                # Try to extract as text
+                extracted_text = self.extract_text_from_txt(raw_content)
+
+            # Return first 10,000 characters
+            if extracted_text:
+                return extracted_text[:10000]
+
+            return None
+
+        except Exception as e:
+            print(f"  ⚠️  Error extracting content: {e}")
+            return None
+
+    def _parse_metadata_response(self, response: str) -> Dict[str, str]:
+        """
+        Parse LLM response to extract metadata fields.
+
+        Args:
+            response: LLM response text
+
+        Returns:
+            Dict with keys: title, authors, publication, date
+        """
+        metadata = {
+            'title': 'Unknown',
+            'authors': 'Unknown',
+            'publication': 'Unknown',
+            'date': 'Unknown'
+        }
+
+        try:
+            lines = response.strip().split('\n')
+            current_field = None
+
+            for line in lines:
+                line = line.strip()
+
+                if line.startswith('TITLE:'):
+                    current_field = 'title'
+                    value = line[6:].strip()
+                    if value and value != 'Unknown':
+                        metadata['title'] = value
+                elif line.startswith('AUTHORS:'):
+                    current_field = 'authors'
+                    value = line[8:].strip()
+                    if value and value != 'Unknown':
+                        metadata['authors'] = value
+                elif line.startswith('PUBLICATION:'):
+                    current_field = 'publication'
+                    value = line[12:].strip()
+                    if value and value != 'Unknown':
+                        metadata['publication'] = value
+                elif line.startswith('DATE:'):
+                    current_field = 'date'
+                    value = line[5:].strip()
+                    if value and value != 'Unknown':
+                        metadata['date'] = value
+                elif current_field and line and not line.startswith(('TITLE:', 'AUTHORS:', 'PUBLICATION:', 'DATE:')):
+                    # Continuation of previous field
+                    if metadata[current_field] == 'Unknown':
+                        metadata[current_field] = line
+                    else:
+                        metadata[current_field] += ' ' + line
+
+        except Exception as e:
+            print(f"  ⚠️  Error parsing metadata response: {e}")
+
+        return metadata
+
+    def _extract_metadata_with_llm(self, attachment_item: Dict) -> Optional[Dict[str, str]]:
+        """
+        Use LLM to extract metadata from attachment content.
+
+        Args:
+            attachment_item: The attachment item
+
+        Returns:
+            Dict with metadata (title, authors, publication, date), or None if extraction fails
+        """
+        try:
+            attachment_data = attachment_item['data']
+            filename = attachment_data.get('filename', attachment_data.get('title', 'Unknown'))
+            content_type = attachment_data.get('contentType', 'Unknown')
+
+            # Extract first 10,000 characters of content
+            print(f"  → Extracting content from attachment...")
+            content = self._extract_content_from_attachment(attachment_item)
+
+            if not content:
+                print(f"  ⚠️  Could not extract content from attachment")
+                return None
+
+            print(f"  → Calling LLM to extract metadata (processing {len(content)} chars)...")
+
+            # Generate prompt
+            prompt = metadata_extraction_prompt(content, filename, content_type)
+
+            # Call LLM
+            response = self.llm_client.call(
+                prompt=prompt,
+                max_tokens=500,
+                model=self.haiku_model,
+                temperature=0.0
+            )
+
+            if not response:
+                print(f"  ⚠️  LLM call failed")
+                return None
+
+            # Parse response
+            metadata = self._parse_metadata_response(response)
+
+            if self.verbose:
+                print(f"  → Extracted metadata:")
+                print(f"     Title: {metadata['title']}")
+                print(f"     Authors: {metadata['authors']}")
+                print(f"     Publication: {metadata['publication']}")
+                print(f"     Date: {metadata['date']}")
+
+            return metadata
+
+        except Exception as e:
+            print(f"  ❌ Error extracting metadata with LLM: {e}")
+            return None
 
     def has_acceptable_attachment(self, item_key: str) -> bool:
         """
@@ -42,7 +199,8 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
     def promote_attachment_to_parent(self, attachment_item: Dict) -> Optional[str]:
         """
         Create a proper parent item from a standalone attachment and recreate
-        the attachment as a child.
+        the attachment as a child. Uses LLM to extract metadata from the attachment
+        content to populate the parent item.
 
         Args:
             attachment_item: The standalone attachment item
@@ -53,17 +211,33 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
         try:
             attachment_data = attachment_item['data']
 
-            # Extract metadata from attachment
+            # Extract basic metadata from attachment
             filename = attachment_data.get('filename', attachment_data.get('title', 'Untitled'))
             url = attachment_data.get('url', '')
             content_type = attachment_data.get('contentType', '')
 
-            # Remove file extension from filename for title
-            title = filename
-            for ext in ['.pdf', '.html', '.htm', '.txt']:
-                if title.lower().endswith(ext):
-                    title = title[:-len(ext)]
-                    break
+            # Try to extract rich metadata using LLM
+            llm_metadata = self._extract_metadata_with_llm(attachment_item)
+
+            if llm_metadata:
+                # Use LLM-extracted metadata
+                title = llm_metadata.get('title', 'Untitled')
+                authors = llm_metadata.get('authors', 'Unknown')
+                publication = llm_metadata.get('publication', '')
+                date = llm_metadata.get('date', '')
+
+                print(f"  ✅ LLM metadata extraction successful")
+            else:
+                # Fallback: Remove file extension from filename for title
+                print(f"  ⚠️  Using fallback metadata extraction")
+                title = filename
+                for ext in ['.pdf', '.html', '.htm', '.txt']:
+                    if title.lower().endswith(ext):
+                        title = title[:-len(ext)]
+                        break
+                authors = None
+                publication = None
+                date = None
 
             # Determine parent item type based on content type
             if content_type == 'application/pdf':
@@ -80,6 +254,43 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
             parent_template['title'] = title
             if url and item_type == 'webpage':
                 parent_template['url'] = url
+
+            # Populate metadata fields if available from LLM
+            if authors and authors != 'Unknown':
+                # Parse authors and create creators array
+                author_names = [name.strip() for name in authors.split(',')]
+                creators = []
+                for author_name in author_names:
+                    # Try to split into first/last name
+                    name_parts = author_name.strip().split()
+                    if len(name_parts) >= 2:
+                        creators.append({
+                            'creatorType': 'author',
+                            'firstName': ' '.join(name_parts[:-1]),
+                            'lastName': name_parts[-1]
+                        })
+                    else:
+                        creators.append({
+                            'creatorType': 'author',
+                            'name': author_name
+                        })
+                parent_template['creators'] = creators
+
+            if publication and publication != 'Unknown':
+                # Use appropriate field based on item type
+                if item_type == 'journalArticle':
+                    parent_template['publicationTitle'] = publication
+                elif item_type in ['book', 'bookSection']:
+                    parent_template['publisher'] = publication
+                elif item_type == 'webpage':
+                    parent_template['websiteTitle'] = publication
+                else:
+                    # For generic document, store in extra field
+                    if 'extra' in parent_template:
+                        parent_template['extra'] = f"Publication: {publication}"
+
+            if date and date != 'Unknown':
+                parent_template['date'] = date
 
             # Preserve tags from attachment
             if 'tags' in attachment_data:
