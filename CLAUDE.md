@@ -228,9 +228,10 @@ src/
   - `cleanup_project()` - Delete specific project subcollection and summary notes
   - `cleanup_all_projects()` - Delete ALL ZResearcher data in collection
   - `is_general_summary_note()` - Identify general summary notes (with optional project filter)
-  - `find_general_summary_notes_for_project()` - Find summaries for specific project
-  - `find_all_general_summary_notes()` - Find all summary notes in collection
+  - `find_general_summary_notes_for_project()` - Find summaries for specific project (both standalone and child notes)
+  - `find_all_general_summary_notes()` - Find all summary notes in collection (both standalone and child notes)
   - `find_all_project_subcollections()` - Find all ZResearcher subcollections
+  - `delete_gemini_files_for_project()` - Delete uploaded Gemini files for project
   - `count_items_in_collection()` - Count items by type (notes/files/items)
   - `preview_cleanup()` - Display preview of what will be deleted
   - `confirm_cleanup()` - Ask user for confirmation
@@ -239,6 +240,8 @@ src/
   - Supports skip-confirmation mode (--yes) for scripting
   - Continues cleanup even if individual deletions fail
   - Reports detailed summary of deleted items and errors
+  - Deletes child summary notes attached to items (created by --build-summaries)
+  - Deletes Gemini files uploaded to Google File API
 
 ### Legacy Modules (Deprecated - see `/old/`)
 

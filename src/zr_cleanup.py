@@ -85,6 +85,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         """
         Find all general summary notes for a specific project in a collection.
 
+        Searches both:
+        - Standalone notes in the collection
+        - Child notes attached to items (created by --build-summaries)
+
         Args:
             collection_key: The collection key
             project_name: The project name to filter by
@@ -95,25 +99,44 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         items = self.get_collection_items(collection_key)
         summary_notes = []
 
+        if self.verbose:
+            print(f"  Scanning {len(items)} items for summary notes...")
+
         for item in items:
             item_data = item['data']
+            item_type = item_data.get('itemType')
 
-            # Check if it's a note
-            if item_data.get('itemType') != 'note':
-                continue
+            # Check if this item itself is a standalone note
+            if item_type == 'note':
+                note_html = item_data.get('note', '')
+                if self.is_general_summary_note(note_html, project_name):
+                    summary_notes.append(item)
 
-            # Get note HTML
-            note_html = item_data.get('note', '')
-
-            # Check if it's a general summary for this project
-            if self.is_general_summary_note(note_html, project_name):
-                summary_notes.append(item)
+            # Also check child notes attached to this item
+            elif item_type not in ['note', 'attachment']:
+                # Get child items (notes and attachments)
+                item_key = item['key']
+                try:
+                    children = self.zot.children(item_key)
+                    for child in children:
+                        child_data = child['data']
+                        if child_data.get('itemType') == 'note':
+                            note_html = child_data.get('note', '')
+                            if self.is_general_summary_note(note_html, project_name):
+                                summary_notes.append(child)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  ⚠️  Error checking children for {item_key}: {e}")
 
         return summary_notes
 
     def find_all_general_summary_notes(self, collection_key: str) -> List[Dict]:
         """
         Find all general summary notes in a collection (for any project).
+
+        Searches both:
+        - Standalone notes in the collection
+        - Child notes attached to items (created by --build-summaries)
 
         Args:
             collection_key: The collection key
@@ -124,19 +147,34 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         items = self.get_collection_items(collection_key)
         summary_notes = []
 
+        if self.verbose:
+            print(f"  Scanning {len(items)} items for summary notes...")
+
         for item in items:
             item_data = item['data']
+            item_type = item_data.get('itemType')
 
-            # Check if it's a note
-            if item_data.get('itemType') != 'note':
-                continue
+            # Check if this item itself is a standalone note
+            if item_type == 'note':
+                note_html = item_data.get('note', '')
+                if self.is_general_summary_note(note_html):
+                    summary_notes.append(item)
 
-            # Get note HTML
-            note_html = item_data.get('note', '')
-
-            # Check if it's a general summary (for any project)
-            if self.is_general_summary_note(note_html):
-                summary_notes.append(item)
+            # Also check child notes attached to this item
+            elif item_type not in ['note', 'attachment']:
+                # Get child items (notes and attachments)
+                item_key = item['key']
+                try:
+                    children = self.zot.children(item_key)
+                    for child in children:
+                        child_data = child['data']
+                        if child_data.get('itemType') == 'note':
+                            note_html = child_data.get('note', '')
+                            if self.is_general_summary_note(note_html):
+                                summary_notes.append(child)
+                except Exception as e:
+                    if self.verbose:
+                        print(f"  ⚠️  Error checking children for {item_key}: {e}")
 
         return summary_notes
 
