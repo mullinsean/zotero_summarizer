@@ -47,13 +47,16 @@ uv run python -m src.zresearcher --init-collection \
 # Step 2: List existing projects in a collection
 uv run python -m src.zresearcher --list-projects --collection COLLECTION_KEY
 
-# Step 3: Edit the template notes in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
+# Step 3: (Optional) Organize sources to ensure all items have acceptable attachments
+uv run python -m src.zresearcher --organize-sources --collection COLLECTION_KEY
+
+# Step 4: Edit the template notes in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
 #   - 【Project Overview: PROJECT】 (describe your research project)
 #   - 【Research Tags: PROJECT】 (one tag per line)
 #   - 【Research Brief: PROJECT】 (your research question)
 #   - 【Project Config: PROJECT】 (optional: tune performance & LLM settings)
 
-# Step 4: Build general summaries (Phase 1 - loads config from Zotero)
+# Step 5: Build general summaries (Phase 1 - loads config from Zotero)
 uv run python -m src.zresearcher --build-summaries \
     --collection COLLECTION_KEY --project "My Research Project"
 
@@ -61,7 +64,7 @@ uv run python -m src.zresearcher --build-summaries \
 uv run python -m src.zresearcher --build-summaries \
     --collection COLLECTION_KEY --project "My Research Project" --force
 
-# Step 5: Run query (Phase 2 - loads brief from Zotero, stores report as note)
+# Step 6: Run query (Phase 2 - loads brief from Zotero, stores report as note)
 uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Research Project"
 
@@ -98,14 +101,15 @@ No test framework currently configured. Tests should be added in `/tests/` direc
 **File Structure:**
 ```
 src/
-├── zresearcher.py (253 lines)    # CLI entry point & routing
-├── zr_common.py (559 lines)      # Base class & shared utilities
-├── zr_init.py (266 lines)        # Collection initialization workflow
-├── zr_build.py (443 lines)       # Phase 1: Build summaries workflow
-├── zr_query.py (992 lines)       # Phase 2: Query & report generation workflow
-├── zr_llm_client.py              # Centralized LLM API client
-├── zr_prompts.py                 # Prompt templates
-└── zotero_base.py                # Base Zotero API functionality
+├── zresearcher.py (253 lines)          # CLI entry point & routing
+├── zr_common.py (559 lines)            # Base class & shared utilities
+├── zr_init.py (266 lines)              # Collection initialization workflow
+├── zr_organize_sources.py (~350 lines) # Source organization workflow
+├── zr_build.py (443 lines)             # Phase 1: Build summaries workflow
+├── zr_query.py (992 lines)             # Phase 2: Query & report generation workflow
+├── zr_llm_client.py                    # Centralized LLM API client
+├── zr_prompts.py                       # Prompt templates
+└── zotero_base.py                      # Base Zotero API functionality
 ```
 
 **Module Responsibilities:**
@@ -132,6 +136,15 @@ src/
 - `ZoteroResearcherInit` class (inherits from `ZoteroResearcherBase`)
   - `init_collection()` - Create project subcollection & template notes
   - `list_projects()` - List existing projects in a collection
+
+**`zr_organize_sources.py`** - Source Organization (Optional Workflow)
+- `ZoteroResearcherOrganizer` class (inherits from `ZoteroResearcherBase`)
+  - `organize_sources()` - Ensure all items have acceptable attachments (HTML/PDF/TXT)
+  - `is_txt_attachment()` - Check if attachment is a text file
+  - `has_acceptable_attachment()` - Verify item has processable attachment
+  - `promote_attachment_to_parent()` - Convert standalone attachments to proper items
+  - `save_webpage_snapshot()` - Fetch and save webpage HTML snapshots
+  - Run after `init_collection` but before `build_summaries`
 
 **`zr_build.py`** - Phase 1 Workflow
 - `ZoteroResearcherBuilder` class (inherits from `ZoteroResearcherBase`)

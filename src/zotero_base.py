@@ -190,6 +190,22 @@ class ZoteroBaseProcessor:
         return (content_type == 'application/pdf' or
                 filename.lower().endswith('.pdf'))
 
+    def is_txt_attachment(self, attachment: Dict) -> bool:
+        """
+        Check if an attachment is a text file.
+
+        Args:
+            attachment: The attachment item data
+
+        Returns:
+            True if the attachment is a text file
+        """
+        content_type = attachment['data'].get('contentType', '')
+        filename = attachment['data'].get('filename', '')
+
+        return (content_type == 'text/plain' or
+                filename.lower().endswith('.txt'))
+
     def download_attachment(self, attachment_key: str) -> Optional[bytes]:
         """
         Download an attachment file from Zotero.

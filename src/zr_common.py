@@ -331,12 +331,46 @@ sonnet_model=claude-sonnet-4-5
             print(f"  ❌ Error extracting PDF text: {e}")
             return None
 
+    def extract_text_from_txt(self, txt_content: bytes) -> Optional[str]:
+        """
+        Extract text from a plain text file.
+
+        Args:
+            txt_content: The text file content as bytes
+
+        Returns:
+            Extracted text as string, or None if extraction failed
+        """
+        try:
+            # Try UTF-8 first, then fall back to other encodings
+            try:
+                text = txt_content.decode('utf-8')
+            except UnicodeDecodeError:
+                # Try common alternative encodings
+                for encoding in ['latin-1', 'cp1252', 'iso-8859-1']:
+                    try:
+                        text = txt_content.decode(encoding)
+                        print(f"  ℹ️  Decoded using {encoding} encoding")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                else:
+                    # If all else fails, decode with errors='replace'
+                    text = txt_content.decode('utf-8', errors='replace')
+                    print(f"  ⚠️  Warning: Some characters could not be decoded")
+
+            return text.strip() if text else None
+
+        except Exception as e:
+            print(f"  ❌ Error extracting text: {e}")
+            return None
+
     def get_source_content(self, item: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
         Get content from a source using priority order:
-        1. Existing "Markdown Extract" note
-        2. HTML snapshot (Trafilatura)
-        3. PDF attachment (PyMuPDF)
+        1. HTML snapshot (Trafilatura)
+        2. PDF attachment (PyMuPDF)
+        3. TXT attachment (plain text)
         4. URL fetch (for webpage items)
 
         Args:
@@ -349,22 +383,11 @@ sonnet_model=claude-sonnet-4-5
         item_data = item['data']
         item_title = item_data.get('title', 'Untitled')
 
-        # Priority 1: Check for existing Markdown Extract note
-        if self.has_note_with_prefix(item_key, 'Markdown Extract:'):
-            print(f"  📝 Found existing Markdown Extract note")
-            markdown_note = self.get_note_with_prefix(item_key, 'Markdown Extract:')
-            if markdown_note:
-                # Strip HTML tags if present (notes are stored as HTML)
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(markdown_note, 'html.parser')
-                text_content = soup.get_text()
-                return text_content.strip(), "Markdown Extract"
-
         # Get attachments
         attachments = self.get_item_attachments(item_key)
 
         if attachments:
-            # Priority 2: Try HTML attachment
+            # Priority 1: Try HTML attachment
             for attachment in attachments:
                 if self.is_html_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -380,7 +403,7 @@ sonnet_model=claude-sonnet-4-5
                         if extracted:
                             return extracted, "HTML"
 
-            # Priority 3: Try PDF attachment
+            # Priority 2: Try PDF attachment
             for attachment in attachments:
                 if self.is_pdf_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -394,6 +417,21 @@ sonnet_model=claude-sonnet-4-5
                         extracted = self.extract_text_from_pdf(pdf_content)
                         if extracted:
                             return extracted, "PDF"
+
+            # Priority 3: Try TXT attachment
+            for attachment in attachments:
+                if self.is_txt_attachment(attachment):
+                    attachment_title = attachment['data'].get('title', 'Untitled')
+                    attachment_key = attachment['key']
+
+                    print(f"  📄 Found TXT attachment: {attachment_title}")
+                    print(f"  📥 Downloading...")
+
+                    txt_content = self.download_attachment(attachment_key)
+                    if txt_content:
+                        extracted = self.extract_text_from_txt(txt_content)
+                        if extracted:
+                            return extracted, "TXT"
 
         # Priority 4: Try fetching from URL (for webpage items)
         item_url = item_data.get('url')
