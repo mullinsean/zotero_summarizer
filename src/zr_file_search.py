@@ -234,9 +234,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         if not self.file_search_store_name:
             print(f"Creating new file search store...")
             try:
-                store = self.genai_client.file_search_stores.create(
-                    display_name=f"ZResearcher: {self.project_name}"
-                )
+                # Create store (no display_name parameter in the API)
+                store = self.genai_client.file_search_stores.create()
                 self.file_search_store_name = store.name
                 print(f"✅ Created store: {self.file_search_store_name}\n")
             except Exception as e:
