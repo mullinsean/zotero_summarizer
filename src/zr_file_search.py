@@ -308,15 +308,39 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     print(f"  ❌ Failed to download attachment")
                     continue
 
-                # Determine file extension
+                # Determine file extension and handle HTML specially
                 if self.is_pdf_attachment(attachment):
                     ext = 'pdf'
+                    upload_content = content
                 elif self.is_html_attachment(attachment):
-                    ext = 'html'
+                    # Extract clean text from HTML snapshot (Gemini has issues with raw HTML)
+                    print(f"  📝 Extracting text from HTML snapshot...")
+                    try:
+                        text_content = self.extract_text_from_html(content)
+                        if not text_content or len(text_content.strip()) < 100:
+                            print(f"  ⚠️  HTML extraction produced no usable text, skipping...")
+                            continue
+                        # Upload as plain text instead of HTML
+                        ext = 'txt'
+                        upload_content = text_content.encode('utf-8')
+                        print(f"  ✅ Extracted {len(text_content)} characters")
+                    except Exception as extract_error:
+                        print(f"  ⚠️  Failed to extract text from HTML: {extract_error}")
+                        print(f"  ⏭️  Skipping this HTML file...")
+                        continue
                 elif self.is_txt_attachment(attachment):
                     ext = 'txt'
+                    upload_content = content
                 else:
                     ext = 'bin'
+                    upload_content = content
+
+                # Check file size (free tier has limits)
+                file_size_mb = len(upload_content) / (1024 * 1024)
+                if file_size_mb > 50:  # 50MB limit for free tier
+                    print(f"  ⚠️  File too large ({file_size_mb:.1f}MB), skipping...")
+                    skipped_count += 1
+                    continue
 
                 # Create temporary file for upload
                 temp_filename = f"zotero_{item_key}_{attachment_key}.{ext}"
@@ -325,7 +349,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 try:
                     # Write content to temp file
                     with open(temp_path, 'wb') as f:
-                        f.write(content)
+                        f.write(upload_content)
 
                     # Upload to Gemini File Search Store with retry logic
                     print(f"  ☁️  Uploading to file search store...")
