@@ -50,10 +50,43 @@ def list_stores(client):
         print(f"❌ Error listing stores: {e}")
         return []
 
+def delete_files_in_store(client, store_name):
+    """Delete all files in a file search store."""
+    try:
+        # List all files in the store
+        files = client.file_search_stores.list_files(file_search_store_name=store_name)
+        file_list = list(files)
+
+        if not file_list:
+            return 0
+
+        print(f"  Found {len(file_list)} file(s) in store, deleting...")
+        deleted = 0
+
+        for file in file_list:
+            try:
+                client.files.delete(name=file.name)
+                deleted += 1
+            except Exception as e:
+                print(f"    ⚠️  Failed to delete file {file.name}: {e}")
+
+        print(f"  ✅ Deleted {deleted}/{len(file_list)} files")
+        return deleted
+
+    except Exception as e:
+        print(f"  ⚠️  Error listing files in store: {e}")
+        return 0
+
 def delete_store(client, store_name):
-    """Delete a specific file search store."""
+    """Delete a specific file search store (including all files in it)."""
     try:
         print(f"Deleting store: {store_name}...")
+
+        # First, delete all files in the store
+        delete_files_in_store(client, store_name)
+
+        # Now delete the empty store
+        print(f"  Deleting store...")
         client.file_search_stores.delete(name=store_name)
         print(f"✅ Deleted successfully\n")
         return True
