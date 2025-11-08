@@ -327,44 +327,71 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     with open(temp_path, 'wb') as f:
                         f.write(content)
 
-                    # Upload to Gemini File Search Store
+                    # Upload to Gemini File Search Store with retry logic
                     print(f"  ☁️  Uploading to file search store...")
 
-                    upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
-                        file=temp_path,
-                        file_search_store_name=self.file_search_store_name,
-                        config={'display_name': f"{item_title} - {attachment_title}"}
-                    )
+                    max_retries = 3
+                    retry_delay = 2  # Start with 2 second delay
+                    upload_success = False
 
-                    # Wait for upload operation to complete
-                    print(f"  ⏳ Waiting for upload to complete...")
-                    max_wait = 120  # 2 minutes
-                    waited = 0
-                    while not upload_op.done and waited < max_wait:
-                        time.sleep(5)
-                        waited += 5
-                        upload_op = self.genai_client.operations.get(upload_op)
+                    for retry in range(max_retries):
+                        try:
+                            upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
+                                file=temp_path,
+                                file_search_store_name=self.file_search_store_name,
+                                config={'display_name': f"{item_title} - {attachment_title}"}
+                            )
 
-                    if not upload_op.done:
-                        print(f"  ⚠️  Upload operation timed out after {max_wait}s")
-                        error_count += 1
-                    else:
-                        # Track uploaded file
-                        self.uploaded_files[item_key] = temp_filename
-                        uploaded_count += 1
-                        uploaded = True
+                            # Wait for upload operation to complete
+                            print(f"  ⏳ Waiting for upload to complete...")
+                            max_wait = 120  # 2 minutes
+                            waited = 0
+                            while not upload_op.done and waited < max_wait:
+                                time.sleep(5)
+                                waited += 5
+                                upload_op = self.genai_client.operations.get(upload_op)
 
-                        print(f"  ✅ Uploaded successfully")
+                            if not upload_op.done:
+                                print(f"  ⚠️  Upload operation timed out after {max_wait}s")
+                                error_count += 1
+                            else:
+                                # Track uploaded file
+                                self.uploaded_files[item_key] = temp_filename
+                                uploaded_count += 1
+                                uploaded = True
+                                upload_success = True
+
+                                print(f"  ✅ Uploaded successfully")
+
+                            break  # Success, exit retry loop
+
+                        except Exception as upload_error:
+                            if retry < max_retries - 1:
+                                # Check if it's a rate limit error
+                                error_msg = str(upload_error)
+                                if 'terminated' in error_msg.lower() or 'rate' in error_msg.lower():
+                                    print(f"  ⚠️  Rate limit hit, retrying in {retry_delay}s... (attempt {retry + 1}/{max_retries})")
+                                    time.sleep(retry_delay)
+                                    retry_delay *= 2  # Exponential backoff
+                                else:
+                                    # Different error, don't retry
+                                    raise
+                            else:
+                                # Last retry failed
+                                raise
 
                     # Clean up temp file
-                    os.remove(temp_path)
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
 
-                    break  # Successfully uploaded, move to next item
+                    if upload_success:
+                        break  # Successfully uploaded, move to next item
 
                 except Exception as e:
                     print(f"  ❌ Error uploading: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    if self.verbose:
+                        import traceback
+                        traceback.print_exc()
                     error_count += 1
                     # Clean up temp file on error
                     if os.path.exists(temp_path):
@@ -375,8 +402,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 print(f"  ⚠️  No compatible attachments found")
                 skipped_count += 1
 
-            # Rate limiting
-            time.sleep(self.rate_limit_delay)
+            # Rate limiting - use longer delay for file uploads (free tier has stricter limits)
+            # Default rate_limit_delay is 0.1s, but file uploads need more breathing room
+            upload_delay = max(self.rate_limit_delay, 3.0)  # Minimum 3 seconds between uploads
+            time.sleep(upload_delay)
 
         # Save state
         print(f"\n{'='*80}")
