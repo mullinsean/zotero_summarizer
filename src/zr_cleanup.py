@@ -260,6 +260,94 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             print("\nCancelled.")
             return False
 
+    def delete_gemini_files_for_project(self, collection_key: str, gemini_api_key: str = None) -> Dict[str, any]:
+        """
+        Delete all Gemini files uploaded for this project.
+
+        Args:
+            collection_key: Parent collection key
+            gemini_api_key: Google Gemini API key (optional, will try to load from env)
+
+        Returns:
+            Dict with deletion results: {'deleted': N, 'errors': [...]}
+        """
+        result = {'deleted': 0, 'errors': []}
+
+        # Get Gemini API key
+        if not gemini_api_key:
+            import os
+            gemini_api_key = os.getenv('GEMINI_API_KEY')
+
+        if not gemini_api_key:
+            if self.verbose:
+                print("  ℹ️  No GEMINI_API_KEY found, skipping Gemini file cleanup")
+            return result
+
+        try:
+            # Initialize Gemini client
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=gemini_api_key)
+            except ImportError:
+                if self.verbose:
+                    print("  ⚠️  google-generativeai package not found, skipping Gemini file cleanup")
+                return result
+
+            # Load project config to get uploaded files
+            try:
+                config = self.load_project_config_from_zotero(collection_key)
+            except (FileNotFoundError, ValueError):
+                # No config found, nothing to delete
+                if self.verbose:
+                    print("  ℹ️  No project config found, no Gemini files to delete")
+                return result
+
+            # Parse uploaded files JSON
+            uploaded_files_json = config.get('gemini_uploaded_files', '')
+            if not uploaded_files_json:
+                if self.verbose:
+                    print("  ℹ️  No Gemini files found in project config")
+                return result
+
+            # Parse the JSON
+            try:
+                import json
+                if uploaded_files_json.startswith('{'):
+                    uploaded_files = json.loads(uploaded_files_json)
+                else:
+                    uploaded_files = {}
+            except json.JSONDecodeError:
+                if self.verbose:
+                    print("  ⚠️  Failed to parse Gemini files JSON")
+                return result
+
+            if not uploaded_files:
+                if self.verbose:
+                    print("  ℹ️  No Gemini files to delete")
+                return result
+
+            # Delete each file
+            print(f"  🗑️  Deleting {len(uploaded_files)} Gemini files...")
+            for item_key, file_name in uploaded_files.items():
+                try:
+                    genai.delete_file(file_name)
+                    result['deleted'] += 1
+                    if self.verbose:
+                        print(f"    ✅ Deleted: {file_name}")
+                except Exception as e:
+                    error_msg = f"Failed to delete Gemini file {file_name}: {e}"
+                    result['errors'].append(error_msg)
+                    if self.verbose:
+                        print(f"    ⚠️  {error_msg}")
+
+        except Exception as e:
+            error_msg = f"Error during Gemini file cleanup: {e}"
+            result['errors'].append(error_msg)
+            if self.verbose:
+                print(f"  ⚠️  {error_msg}")
+
+        return result
+
     def delete_collection_recursive(self, collection_key: str) -> Dict[str, any]:
         """
         Delete a collection and all its contents recursively.
@@ -299,7 +387,9 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
             # Delete the collection itself
             try:
-                self.zot.delete_collection(collection_key)
+                # Retrieve collection object (pyzotero requires the full object, not just the key)
+                collection = self.zot.collection(collection_key)
+                self.zot.delete_collection(collection)
             except Exception as e:
                 error_msg = f"Failed to delete collection {collection_key}: {e}"
                 deleted['errors'].append(error_msg)
@@ -381,7 +471,13 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         # Perform deletion
         print("\n🗑️  Deleting items...")
-        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'errors': []}
+        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'errors': []}
+
+        # Delete Gemini files first (if any)
+        if subcollections:
+            gemini_result = self.delete_gemini_files_for_project(collection_key)
+            total_deleted['gemini_files'] += gemini_result['deleted']
+            total_deleted['errors'].extend(gemini_result['errors'])
 
         # Delete subcollection and contents
         for subcoll in subcollections:
@@ -409,6 +505,8 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         print("\n" + "=" * 60)
         print("✅ Cleanup Complete\n")
         print(f"Deleted:")
+        if total_deleted['gemini_files'] > 0:
+            print(f"  • {total_deleted['gemini_files']} Gemini files")
         print(f"  • {total_deleted['notes']} notes")
         print(f"  • {total_deleted['files']} file attachments")
         print(f"  • {total_deleted['items']} other items")
@@ -472,7 +570,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         # Perform deletion
         print("\n🗑️  Deleting items...")
-        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'errors': []}
+        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'errors': []}
+
+        # Delete Gemini files for each project
+        for subcoll in subcollections:
+            # Set project name for this iteration
+            self.project_name = subcoll['project_name']
+            print(f"\n  Checking Gemini files for {subcoll['name']}...")
+            gemini_result = self.delete_gemini_files_for_project(collection_key)
+            total_deleted['gemini_files'] += gemini_result['deleted']
+            total_deleted['errors'].extend(gemini_result['errors'])
 
         # Delete all subcollections
         for subcoll in subcollections:
@@ -500,6 +607,8 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         print("\n" + "=" * 60)
         print("✅ Cleanup Complete\n")
         print(f"Deleted:")
+        if total_deleted['gemini_files'] > 0:
+            print(f"  • {total_deleted['gemini_files']} Gemini files")
         print(f"  • {len(subcollections)} project subcollections")
         print(f"  • {total_deleted['notes']} notes")
         print(f"  • {total_deleted['files']} file attachments")
