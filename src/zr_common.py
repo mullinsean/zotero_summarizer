@@ -199,6 +199,11 @@ haiku_model=claude-haiku-4-5
 sonnet_model=claude-sonnet-4-5
 
 # ============================================================
+# Gemini File Search Configuration
+# ============================================================
+gemini_file_search_model=gemini-2.5-pro
+
+# ============================================================
 # Gemini File API State (managed automatically)
 # DO NOT EDIT - these are updated by --file-search
 # ============================================================
@@ -607,6 +612,12 @@ gemini_uploaded_files={}
                 self.sonnet_model = config['sonnet_model']
             elif self.verbose:
                 print(f"  ⚠️  Invalid sonnet_model: must start with 'claude-'")
+
+        if 'gemini_file_search_model' in config:
+            if isinstance(config['gemini_file_search_model'], str) and config['gemini_file_search_model'].startswith('gemini-'):
+                self.gemini_file_search_model = config['gemini_file_search_model']
+            elif self.verbose:
+                print(f"  ⚠️  Invalid gemini_file_search_model: must start with 'gemini-'")
 
     def get_note_from_subcollection(
         self,
