@@ -21,6 +21,7 @@ try:
     from .zr_query import ZoteroResearcherQuerier
     from .zr_organize_sources import ZoteroResearcherOrganizer
     from .zr_file_search import ZoteroFileSearcher
+    from .zr_cleanup import ZoteroResearcherCleaner
 except ImportError:
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
@@ -28,6 +29,7 @@ except ImportError:
     from zr_query import ZoteroResearcherQuerier
     from zr_organize_sources import ZoteroResearcherOrganizer
     from zr_file_search import ZoteroFileSearcher
+    from zr_cleanup import ZoteroResearcherCleaner
 
 
 def main():
@@ -64,6 +66,14 @@ Examples:
 
   # File Search: Run Gemini RAG query (auto-uploads if needed)
   python zresearcher.py --file-search --collection KEY --project "AI Productivity"
+
+  # Cleanup: Remove a specific project (preview with --dry-run)
+  python zresearcher.py --cleanup-project --collection KEY --project "AI Productivity" --dry-run
+  python zresearcher.py --cleanup-project --collection KEY --project "AI Productivity"
+
+  # Cleanup: Remove ALL projects from a collection (use with caution!)
+  python zresearcher.py --cleanup-collection --collection KEY --dry-run
+  python zresearcher.py --cleanup-collection --collection KEY --yes
         """
     )
 
@@ -104,6 +114,16 @@ Examples:
         action='store_true',
         help='Google Gemini File Search: query sources using RAG (auto-uploads if needed, requires GEMINI_API_KEY)'
     )
+    mode_group.add_argument(
+        '--cleanup-project',
+        action='store_true',
+        help='Clean up a specific project: delete subcollection and all summary notes for this project'
+    )
+    mode_group.add_argument(
+        '--cleanup-collection',
+        action='store_true',
+        help='Clean up ALL projects in a collection: delete all ZResearcher data (use with caution!)'
+    )
 
     # Common arguments
     parser.add_argument(
@@ -129,6 +149,18 @@ Examples:
         '--force',
         action='store_true',
         help='[Build] Force rebuild of existing summaries'
+    )
+
+    # Cleanup arguments
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='[Cleanup] Preview what would be deleted without actually deleting'
+    )
+    parser.add_argument(
+        '--yes',
+        action='store_true',
+        help='[Cleanup] Skip confirmation prompt (useful for scripts)'
     )
 
     args = parser.parse_args()
@@ -162,7 +194,8 @@ Examples:
         args.init_collection,
         args.build_summaries,
         args.query_summary,
-        args.file_search is not None
+        args.file_search,
+        args.cleanup_project
     ]
     if any(operations_requiring_project) and not args.project:
         print("Error: --project is required for this operation")
@@ -308,6 +341,41 @@ Examples:
             print(f"✅ File search query completed successfully")
         else:
             print(f"❌ File search query failed")
+        return
+
+    # Handle --cleanup-project mode
+    if args.cleanup_project:
+        cleaner = ZoteroResearcherCleaner(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in cleanup, but required by base class
+            project_name=project_name,
+            verbose=args.verbose
+        )
+        cleaner.cleanup_project(
+            collection_key,
+            project_name,
+            dry_run=args.dry_run,
+            skip_confirm=args.yes
+        )
+        return
+
+    # Handle --cleanup-collection mode
+    if args.cleanup_collection:
+        cleaner = ZoteroResearcherCleaner(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in cleanup, but required by base class
+            project_name="temp",  # Not used for collection-wide cleanup
+            verbose=args.verbose
+        )
+        cleaner.cleanup_all_projects(
+            collection_key,
+            dry_run=args.dry_run,
+            skip_confirm=args.yes
+        )
         return
 
 
