@@ -57,9 +57,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         # Import Gemini SDK
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_api_key)
-            self.genai = genai
+            from google import genai
+            from google.genai import types
+            self.genai_client = genai.Client(api_key=gemini_api_key)
+            self.genai_types = types
         except ImportError:
             raise ImportError(
                 "google-generativeai package not found. "
@@ -67,8 +68,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             )
 
         # Gemini File Search state
-        self.corpus_name = None
-        self.uploaded_files = {}  # Map of item_key -> file_name
+        self.file_search_store_name = None
+        self.uploaded_files = {}  # Map of item_key -> document_name
 
     def _get_research_report_note_title(self, report_number: int = 1) -> str:
         """Get project-specific research report note title."""
@@ -85,14 +86,14 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             collection_key: Parent collection key
 
         Returns:
-            Dict with gemini_corpus_name and gemini_uploaded_files
+            Dict with gemini_file_search_store_name and gemini_uploaded_files
         """
         try:
             config = self.load_project_config_from_zotero(collection_key)
 
             # Extract Gemini-specific state
             gemini_state = {
-                'corpus_name': config.get('gemini_corpus_name', ''),
+                'file_search_store_name': config.get('gemini_file_search_store_name', ''),
                 'uploaded_files': {}
             }
 
@@ -109,7 +110,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         except FileNotFoundError:
             # Config doesn't exist yet - return empty state
-            return {'corpus_name': '', 'uploaded_files': {}}
+            return {'file_search_store_name': '', 'uploaded_files': {}}
 
     def _save_gemini_state_to_config(self, collection_key: str):
         """
@@ -154,8 +155,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         found_files = False
 
         for line in lines:
-            if line.strip().startswith('gemini_corpus_name='):
-                new_lines.append(f"gemini_corpus_name={self.corpus_name}")
+            if line.strip().startswith('gemini_file_search_store_name='):
+                new_lines.append(f"gemini_file_search_store_name={self.file_search_store_name}")
                 found_corpus = True
             elif line.strip().startswith('gemini_uploaded_files='):
                 uploaded_files_json = json.dumps(self.uploaded_files)
@@ -179,10 +180,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 new_lines.insert(insert_idx + 1, '# ============================================================')
                 new_lines.insert(insert_idx + 2, '# Gemini File Search State (managed automatically)')
                 new_lines.insert(insert_idx + 3, '# ============================================================')
-                new_lines.insert(insert_idx + 4, f'gemini_corpus_name={self.corpus_name}')
+                new_lines.insert(insert_idx + 4, f'gemini_file_search_store_name={self.file_search_store_name}')
                 insert_idx += 5
             else:
-                new_lines.insert(insert_idx, f'gemini_corpus_name={self.corpus_name}')
+                new_lines.insert(insert_idx, f'gemini_file_search_store_name={self.file_search_store_name}')
                 insert_idx += 1
 
             if not found_files:
@@ -190,9 +191,9 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 new_lines.insert(insert_idx, f'gemini_uploaded_files={uploaded_files_json}')
 
         elif not found_files:
-            # Add files entry after corpus
+            # Add files entry after file search store
             for i, line in enumerate(new_lines):
-                if line.strip().startswith('gemini_corpus_name='):
+                if line.strip().startswith('gemini_file_search_store_name='):
                     uploaded_files_json = json.dumps(self.uploaded_files)
                     new_lines.insert(i + 1, f'gemini_uploaded_files={uploaded_files_json}')
                     break
@@ -227,26 +228,30 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         # Load existing Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
-        self.corpus_name = gemini_state['corpus_name']
+        self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Create or get corpus
-        if not self.corpus_name or self.force_rebuild:
-            corpus_name = f"zotero_{self.project_name}_{int(time.time())}"
+        # Create or get file search store
+        if not self.file_search_store_name or self.force_rebuild:
+            store_display_name = f"zotero_{self.project_name.replace(' ', '_')}_{int(time.time())}"
 
             try:
-                # Create a new corpus
-                corpus = self.genai.create_corpus(display_name=corpus_name)
-                self.corpus_name = corpus.name
-                self.uploaded_files = {}  # Reset on new corpus
+                # Create a new file search store
+                file_search_store = self.genai_client.file_search_stores.create(
+                    config={'display_name': store_display_name}
+                )
+                self.file_search_store_name = file_search_store.name
+                self.uploaded_files = {}  # Reset on new store
 
-                print(f"✅ Created new Gemini corpus: {corpus_name}")
-                print(f"   Corpus ID: {self.corpus_name}\n")
+                print(f"✅ Created new Gemini file search store: {store_display_name}")
+                print(f"   Store name: {self.file_search_store_name}\n")
             except Exception as e:
-                print(f"❌ Error creating Gemini corpus: {e}")
+                print(f"❌ Error creating Gemini file search store: {e}")
+                import traceback
+                traceback.print_exc()
                 return False
         else:
-            print(f"ℹ️  Using existing Gemini corpus: {self.corpus_name}")
+            print(f"ℹ️  Using existing Gemini file search store: {self.file_search_store_name}")
             print(f"   {len(self.uploaded_files)} files already uploaded\n")
 
         # Get collection items
@@ -328,22 +333,32 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     with open(temp_path, 'wb') as f:
                         f.write(content)
 
-                    # Upload to Gemini
+                    # Upload to Gemini File Search Store
                     print(f"  ☁️  Uploading to Gemini...")
 
-                    uploaded_file = self.genai.upload_file(
-                        path=temp_path,
-                        display_name=f"{item_title} - {attachment_title}"
+                    # Upload and import file into file search store
+                    operation = self.genai_client.file_search_stores.upload_to_file_search_store(
+                        file=temp_path,
+                        file_search_store_name=self.file_search_store_name,
+                        config={
+                            'display_name': f"{item_title} - {attachment_title}"
+                        }
                     )
 
-                    # Add to corpus
-                    self.genai.create_document(
-                        corpus_name=self.corpus_name,
-                        display_name=f"{item_title} - {attachment_title}",
-                        source_file=uploaded_file.name
-                    )
+                    # Wait for upload to complete
+                    print(f"  ⏳ Processing...")
+                    max_wait = 60  # Max 60 seconds
+                    waited = 0
+                    while not operation.done and waited < max_wait:
+                        time.sleep(2)
+                        waited += 2
+                        operation = self.genai_client.operations.get(operation.name)
 
-                    self.uploaded_files[item_key] = uploaded_file.name
+                    if not operation.done:
+                        print(f"  ⚠️  Upload timed out after {max_wait}s, may still be processing")
+
+                    # Track uploaded file
+                    self.uploaded_files[item_key] = operation.name
                     uploaded_count += 1
                     uploaded = True
 
@@ -356,6 +371,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
                 except Exception as e:
                     print(f"  ❌ Error uploading: {e}")
+                    import traceback
+                    traceback.print_exc()
                     error_count += 1
                     # Clean up temp file on error
                     if os.path.exists(temp_path):
@@ -460,11 +477,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
 
         # Load Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
-        self.corpus_name = gemini_state['corpus_name']
+        self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Auto-upload if no corpus or no files uploaded
-        if not self.corpus_name or not self.uploaded_files:
+        # Auto-upload if no file search store or no files uploaded
+        if not self.file_search_store_name or not self.uploaded_files:
             print(f"ℹ️  No files uploaded yet. Uploading collection to Gemini...\n")
 
             # Upload files
@@ -478,8 +495,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             print(f"Files uploaded successfully. Proceeding with query...")
             print(f"{'='*80}\n")
         else:
-            print(f"ℹ️  Using existing Gemini corpus: {self.corpus_name}")
-            print(f"   Files in corpus: {len(self.uploaded_files)}\n")
+            print(f"ℹ️  Using existing Gemini file search store: {self.file_search_store_name}")
+            print(f"   Files in store: {len(self.uploaded_files)}\n")
 
         # Load query request
         print(f"Loading query request from Zotero...")
@@ -495,14 +512,20 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Running Gemini File Search query...")
 
         try:
-            # Create model with file search
-            model = self.genai.GenerativeModel(
-                model_name="gemini-2.0-flash-exp",
-                tools=[self.genai.Tool(corpus=self.corpus_name)]
+            # Query using File Search tool
+            response = self.genai_client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=query_request,
+                config=self.genai_types.GenerateContentConfig(
+                    tools=[
+                        self.genai_types.Tool(
+                            file_search=self.genai_types.FileSearch(
+                                file_search_store_names=[self.file_search_store_name]
+                            )
+                        )
+                    ]
+                )
             )
-
-            # Generate response
-            response = model.generate_content(query_request)
 
             # Extract response text
             response_text = response.text if hasattr(response, 'text') else str(response)
