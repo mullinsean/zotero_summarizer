@@ -9,4 +9,4 @@ trafilatura
 pypdf
 pymupdf
 markdown
-google-genai
+google-generativeai

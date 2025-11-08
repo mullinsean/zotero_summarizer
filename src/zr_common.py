@@ -199,10 +199,9 @@ haiku_model=claude-haiku-4-5
 sonnet_model=claude-sonnet-4-5
 
 # ============================================================
-# Gemini File Search State (managed automatically)
+# Gemini File API State (managed automatically)
 # DO NOT EDIT - these are updated by --file-search
 # ============================================================
-gemini_file_search_store_name=
 gemini_uploaded_files={}
 
 # ============================================================
