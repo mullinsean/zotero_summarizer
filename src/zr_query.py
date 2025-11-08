@@ -37,46 +37,13 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
             FileNotFoundError: If subcollection or note not found
             ValueError: If note still contains template placeholder
         """
-        subcollection_name = self._get_subcollection_name()
-        note_title = self._get_research_brief_note_title()
-
-        # Get project-specific subcollection
-        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
-        if not subcollection_key:
-            raise FileNotFoundError(
-                f"{subcollection_name} subcollection not found. "
-                f"Run --init-collection --project \"{self.project_name}\" first."
-            )
-
-        # Get all notes in subcollection
-        notes = self.get_collection_notes(subcollection_key)
-
-        for note in notes:
-            title = self.get_note_title_from_html(note['data']['note'])
-            if note_title in title:
-                content = self.extract_text_from_note_html(note['data']['note'])
-
-                # Check if still template
-                if '[TODO:' in content:
-                    raise ValueError(
-                        f"{note_title} still contains template. "
-                        "Please edit the note in Zotero before running query."
-                    )
-
-                # Remove template footer if present
-                if '---' in content:
-                    content = content.split('---')[0]
-
-                # Remove title line
-                lines = content.split('\n')
-                if lines and note_title in lines[0]:
-                    content = '\n'.join(lines[1:])
-
-                return content.strip()
-
-        raise FileNotFoundError(
-            f"{note_title} not found in {subcollection_name} subcollection. "
-            f"Run --init-collection --project \"{self.project_name}\" first, then edit the {note_title} note."
+        return self.load_note_from_subcollection(
+            collection_key,
+            self._get_research_brief_note_title(),
+            check_todo=True,
+            remove_title_line=True,
+            remove_footer=True,
+            operation_name="running query"
         )
 
     def parse_general_summary_note(self, note_content: str) -> Optional[Dict]:
