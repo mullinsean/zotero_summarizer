@@ -513,7 +513,7 @@ GEMINI_API_KEY=<api_key>            # Google Gemini API key (required for --file
 - **requests** - HTTP library for URL fetching
 - **python-dotenv** - Environment variable management
 - **anthropic** - Anthropic Claude API client (required for most features)
-- **google-generativeai** - Google Gemini API client (required for --file-search)
+- **google-genai** - Google Gemini API client v1.x (required for --file-search)
 
 ### Python Version
 - **Required:** Python 3.12+

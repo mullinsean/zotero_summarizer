@@ -63,8 +63,8 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             self.genai_types = types
         except ImportError:
             raise ImportError(
-                "google-generativeai package not found. "
-                "Install it with: pip install google-generativeai"
+                "google-genai package not found. "
+                "Install it with: pip install google-genai"
             )
 
         # Gemini File Search state
