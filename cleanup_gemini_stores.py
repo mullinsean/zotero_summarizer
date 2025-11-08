@@ -4,11 +4,14 @@ Utility script to list and delete Google Gemini File Search Stores.
 
 This helps free up your 1GB free tier storage quota by removing old stores.
 
+File Search stores do NOT auto-expire - they persist until you delete them.
+Uses force=true to delete non-empty stores (removes all documents inside).
+
 Usage:
     # List all stores
     python cleanup_gemini_stores.py --list
 
-    # Delete all stores
+    # Delete all stores (force deletes non-empty stores)
     python cleanup_gemini_stores.py --delete-all
 
     # Delete specific store
@@ -50,31 +53,24 @@ def list_stores(client):
         print(f"❌ Error listing stores: {e}")
         return []
 
-def delete_store(client, store_name):
-    """Delete a specific file search store."""
+def delete_store(client, store_name, force=True):
+    """Delete a specific file search store.
+
+    Args:
+        client: Gemini client
+        store_name: Name of the store to delete
+        force: If True, delete non-empty stores (default: True)
+    """
     try:
         print(f"Deleting store: {store_name}...")
 
-        # Try to delete the store
-        # Note: Google's API requires stores to be empty, but there's no public
-        # API to list/delete files in a store. Files expire automatically after
-        # 48 hours of inactivity, or the store can be deleted via the console.
-        client.file_search_stores.delete(name=store_name)
+        # Delete the store using force=true to handle non-empty stores
+        client.file_search_stores.delete(name=store_name, force=force)
         print(f"✅ Deleted successfully\n")
         return True
     except Exception as e:
-        error_msg = str(e)
-
-        # Check if it's a non-empty store error
-        if 'FAILED_PRECONDITION' in error_msg or 'non-empty' in error_msg.lower():
-            print(f"⚠️  Store is not empty and cannot be deleted")
-            print(f"   Files in stores are automatically deleted after 48 hours of inactivity")
-            print(f"   You can also delete stores manually via Google AI Studio:")
-            print(f"   https://aistudio.google.com/app/files\n")
-            return False
-        else:
-            print(f"❌ Error deleting store: {e}\n")
-            return False
+        print(f"❌ Error deleting store: {e}\n")
+        return False
 
 def delete_all_stores(client):
     """Delete all file search stores."""
