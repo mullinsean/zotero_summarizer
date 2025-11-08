@@ -20,12 +20,14 @@ try:
     from .zr_build import ZoteroResearcherBuilder
     from .zr_query import ZoteroResearcherQuerier
     from .zr_organize_sources import ZoteroResearcherOrganizer
+    from .zr_file_search import ZoteroFileSearcher
 except ImportError:
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
     from zr_build import ZoteroResearcherBuilder
     from zr_query import ZoteroResearcherQuerier
     from zr_organize_sources import ZoteroResearcherOrganizer
+    from zr_file_search import ZoteroFileSearcher
 
 
 def main():
@@ -59,6 +61,12 @@ Examples:
 
   # Rebuild all summaries for a project
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" --force
+
+  # File Search: Upload files to Gemini
+  python zresearcher.py --file-search upload --collection KEY --project "AI Productivity"
+
+  # File Search: Run query
+  python zresearcher.py --file-search query --collection KEY --project "AI Productivity"
         """
     )
 
@@ -94,6 +102,12 @@ Examples:
         action='store_true',
         help='Phase 2: Query sources using research brief from Zotero notes'
     )
+    mode_group.add_argument(
+        '--file-search',
+        type=str,
+        choices=['upload', 'query'],
+        help='Google Gemini File Search: upload files or run query (requires GEMINI_API_KEY)'
+    )
 
     # Common arguments
     parser.add_argument(
@@ -128,6 +142,7 @@ Examples:
     library_type = os.getenv('ZOTERO_LIBRARY_TYPE', 'user')
     zotero_api_key = os.getenv('ZOTERO_API_KEY')
     anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+    gemini_api_key = os.getenv('GEMINI_API_KEY')
     collection_key = args.collection or os.getenv('ZOTERO_COLLECTION_KEY')
 
     # Validate required configuration
@@ -136,16 +151,22 @@ Examples:
         print("Please set ZOTERO_LIBRARY_ID and ZOTERO_API_KEY in your .env file")
         return
 
-    if not anthropic_api_key:
+    if not anthropic_api_key and not args.file_search:
         print("Error: Missing required ANTHROPIC_API_KEY")
         print("Please set ANTHROPIC_API_KEY in your .env file")
+        return
+
+    if args.file_search and not gemini_api_key:
+        print("Error: Missing required GEMINI_API_KEY for File Search")
+        print("Please set GEMINI_API_KEY in your .env file")
         return
 
     # Validate project name is provided for operations that require it
     operations_requiring_project = [
         args.init_collection,
         args.build_summaries,
-        args.query_summary
+        args.query_summary,
+        args.file_search is not None
     ]
     if any(operations_requiring_project) and not args.project:
         print("Error: --project is required for this operation")
@@ -270,6 +291,31 @@ Examples:
                 print(f"Note: Large report saved as file (with stub note in Zotero)")
             else:
                 print(f"Note: Report saved as note in project subcollection")
+        return
+
+    # Handle --file-search mode
+    if args.file_search:
+        searcher = ZoteroFileSearcher(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Optional for file search
+            gemini_api_key,
+            project_name=project_name,
+            force_rebuild=args.force,
+            verbose=args.verbose
+        )
+
+        if args.file_search == 'upload':
+            # Upload files to Gemini
+            searcher.upload_files_to_gemini(collection_key)
+        elif args.file_search == 'query':
+            # Run query using Gemini File Search
+            result = searcher.run_file_search(collection_key)
+            if result:
+                print(f"✅ File search query completed successfully")
+            else:
+                print(f"❌ File search query failed")
         return
 
 

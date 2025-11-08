@@ -73,6 +73,28 @@ uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
 ```
 
+**ZoteroResearcher - File Search (Google Gemini RAG)**
+```bash
+# Step 1: Upload files to Gemini corpus (one-time operation)
+uv run python -m src.zresearcher --file-search upload \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Force re-upload of all files
+uv run python -m src.zresearcher --file-search upload \
+    --collection COLLECTION_KEY --project "My Research Project" --force
+
+# Step 2: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
+#   - 【Query Request】 (your File Search query)
+
+# Step 3: Run File Search query (RAG-based querying)
+uv run python -m src.zresearcher --file-search query \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Verbose mode for detailed logging
+uv run python -m src.zresearcher --file-search query \
+    --collection COLLECTION_KEY --project "My Research Project" --verbose
+```
+
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
@@ -101,12 +123,13 @@ No test framework currently configured. Tests should be added in `/tests/` direc
 **File Structure:**
 ```
 src/
-├── zresearcher.py (253 lines)          # CLI entry point & routing
-├── zr_common.py (559 lines)            # Base class & shared utilities
-├── zr_init.py (266 lines)              # Collection initialization workflow
+├── zresearcher.py (~320 lines)         # CLI entry point & routing
+├── zr_common.py (~600 lines)           # Base class & shared utilities
+├── zr_init.py (~290 lines)             # Collection initialization workflow
 ├── zr_organize_sources.py (~350 lines) # Source organization workflow
 ├── zr_build.py (443 lines)             # Phase 1: Build summaries workflow
 ├── zr_query.py (992 lines)             # Phase 2: Query & report generation workflow
+├── zr_file_search.py (~450 lines)      # File Search: Gemini RAG integration
 ├── zr_llm_client.py                    # Centralized LLM API client
 ├── zr_prompts.py                       # Prompt templates
 └── zotero_base.py                      # Base Zotero API functionality
@@ -163,6 +186,17 @@ src/
   - `generate_report_title()` - LLM-generated report titles
   - `_compile_research_html_string()` - HTML report generation
   - Smart storage: Notes <1MB, files >1MB with stub notes
+
+**`zr_file_search.py`** - File Search Workflow (Google Gemini RAG)
+- `ZoteroFileSearcher` class (inherits from `ZoteroResearcherBase`)
+  - `upload_files_to_gemini()` - Upload collection files to Gemini corpus (one-time)
+  - `run_file_search()` - Query Gemini File Search and save results
+  - `load_query_request_from_zotero()` - Load query from Zotero note
+  - `_load_gemini_state_from_config()` - Load upload state from Project Config
+  - `_save_gemini_state_to_config()` - Save upload state to Project Config
+  - Supports PDF, HTML, and TXT attachments
+  - Creates numbered Research Report notes in Zotero
+  - Free storage and embedding; $0.15 per 1M tokens for indexing
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
@@ -469,8 +503,9 @@ ZOTERO_LIBRARY_TYPE=user|group      # Type of library
 ZOTERO_API_KEY=<api_key>            # Zotero API authentication key
 ZOTERO_COLLECTION_KEY=<collection>  # Collection to process
 
-# LLM Configuration (optional - for --use-llm feature)
-ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude
+# LLM Configuration
+ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude (required for most features)
+GEMINI_API_KEY=<api_key>            # Google Gemini API key (required for --file-search)
 ```
 
 ### Key Dependencies
@@ -480,7 +515,8 @@ ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude
 - **html2text** - HTML to Markdown conversion (fallback only)
 - **requests** - HTTP library for URL fetching
 - **python-dotenv** - Environment variable management
-- **anthropic** - Anthropic Claude API client (optional, for LLM polish)
+- **anthropic** - Anthropic Claude API client (required for most features)
+- **google-generativeai** - Google Gemini API client (required for --file-search)
 
 ### Python Version
 - **Required:** Python 3.12+

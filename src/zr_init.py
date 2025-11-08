@@ -158,7 +158,34 @@ Edit this note before running --query-summary"""
         else:
             print(f"   ❌ Failed to create: {self._get_research_brief_note_title()}")
 
-        # Template 4: Project Configuration
+        # Template 4: Query Request (for File Search)
+        query_request_content = """[TODO: Replace this template with your File Search query]
+
+Enter your query for the Gemini File Search feature. This will be used
+to search across all uploaded files in your collection using RAG.
+
+Example:
+What are the main findings and statistical evidence about the impact
+of AI-assisted code generation on developer productivity? Please cite
+specific studies and include quantitative results where available.
+
+---
+Template created by ZoteroResearcher
+Edit this note before running --file-search query"""
+
+        query_request_key = self.create_standalone_note(
+            subcollection_key,
+            query_request_content,
+            self._get_query_request_note_title(),
+            convert_markdown=True
+        )
+
+        if query_request_key:
+            print(f"   ✅ Created: {self._get_query_request_note_title()}")
+        else:
+            print(f"   ❌ Failed to create: {self._get_query_request_note_title()}")
+
+        # Template 5: Project Configuration
         # Wrap in code block for proper formatting (monospace, preserved line breaks)
         config_template = self._get_default_config_template()
         config_content = f"```\n{config_template}\n```"
@@ -183,15 +210,17 @@ Edit this note before running --query-summary"""
         print(f"Configuration templates created:")
         print(f"   - {self._get_project_overview_note_title()} (edit before building summaries)")
         print(f"   - {self._get_research_tags_note_title()} (edit before building summaries)")
-        print(f"   - {self._get_research_brief_note_title()} (edit before running queries)")
+        print(f"   - {self._get_research_brief_note_title()} (edit before running --query-summary)")
+        print(f"   - {self._get_query_request_note_title()} (edit before running --file-search)")
         print(f"   - {self._get_project_config_note_title()} (optional: customize project settings)\n")
         print(f"Next steps:")
         print(f"   1. Open the '{subcollection_name}' subcollection in Zotero")
         print(f"   2. Edit '{self._get_project_overview_note_title()}' with your project description")
         print(f"   3. Edit '{self._get_research_tags_note_title()}' with your tag list")
-        print(f"   4. Edit '{self._get_research_brief_note_title()}' with your research question")
-        print(f"   5. (Optional) Edit '{self._get_project_config_note_title()}' to customize settings")
-        print(f"   6. Run: python zresearcher.py --build-summaries --collection {collection_key} --project \"{self.project_name}\"")
+        print(f"   4. Edit '{self._get_research_brief_note_title()}' with your research question (for --query-summary)")
+        print(f"   5. Edit '{self._get_query_request_note_title()}' with your search query (for --file-search)")
+        print(f"   6. (Optional) Edit '{self._get_project_config_note_title()}' to customize settings")
+        print(f"   7. Run: python zresearcher.py --build-summaries --collection {collection_key} --project \"{self.project_name}\"")
         print(f"{'='*80}\n")
 
         return True
