@@ -213,6 +213,16 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Project: {self.project_name}")
         print(f"{'='*80}\n")
 
+        # Verify project exists before uploading files
+        subcollection_name = self._get_subcollection_name()
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            print(f"❌ Project not found: {subcollection_name}")
+            print(f"\nPlease initialize the project first:")
+            print(f"  uv run python -m src.zresearcher --init-collection \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return False
+
         # Load existing Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
         self.file_search_store_name = gemini_state['file_search_store_name']
@@ -511,7 +521,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
     def run_file_search(self, collection_key: str) -> Optional[str]:
         """
         Run Gemini File Search query and save results as Research Report.
-        Automatically uploads files if not already uploaded.
+        Requires files to be uploaded first (use --upload-files).
 
         Args:
             collection_key: Collection key to process
@@ -523,6 +533,16 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Running Gemini File Search Query")
         print(f"Project: {self.project_name}")
         print(f"{'='*80}\n")
+
+        # Verify project exists before running query
+        subcollection_name = self._get_subcollection_name()
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            print(f"❌ Project not found: {subcollection_name}")
+            print(f"\nPlease initialize the project first:")
+            print(f"  uv run python -m src.zresearcher --init-collection \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return None
 
         # Load project configuration
         try:
@@ -540,53 +560,37 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Auto-upload if no store exists
-        if not self.file_search_store_name:
-            print(f"ℹ️  No file search store found. Creating store and uploading files...\n")
+        # Check if files have been uploaded
+        if not self.file_search_store_name or not self.uploaded_files:
+            print(f"❌ No file search store found. Please upload files first.\n")
+            print(f"Run the following command to upload files:")
+            print(f"  uv run python -m src.zresearcher --upload-files \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return None
 
-            # Upload files
-            success = self.upload_files_to_gemini(collection_key)
+        # Check for new files that haven't been uploaded yet
+        items = self.get_collection_items(collection_key)
+        new_files_count = 0
+        for item in items:
+            item_key = item['key']
+            item_type = item['data'].get('itemType')
+            if item_type in ['note', 'attachment']:
+                continue
+            if item_key not in self.uploaded_files:
+                new_files_count += 1
 
-            if not success:
-                print(f"❌ File upload failed. Cannot proceed with query.")
-                return None
-
-            print(f"\n{'='*80}")
-            print(f"Files uploaded successfully. Proceeding with query...")
-            print(f"{'='*80}\n")
+        if new_files_count > 0:
+            print(f"⚠️  Warning: {new_files_count} new file(s) detected in collection")
+            print(f"   These files are not included in the file search store.")
+            print(f"   Run --upload-files to include them in searches:\n")
+            print(f"  uv run python -m src.zresearcher --upload-files \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            print(f"Proceeding with query using {len(self.uploaded_files)} uploaded files...\n")
         else:
-            # Store exists - check for new files to upload
-            print(f"ℹ️  Using existing file search store")
+            print(f"ℹ️  Using file search store")
             print(f"   Store: {self.file_search_store_name}")
             print(f"   Files uploaded: {len(self.uploaded_files)}")
-
-            # Check if there are new files in collection
-            items = self.get_collection_items(collection_key)
-            new_files_count = 0
-            for item in items:
-                item_key = item['key']
-                item_type = item['data'].get('itemType')
-                if item_type in ['note', 'attachment']:
-                    continue
-                if item_key not in self.uploaded_files:
-                    new_files_count += 1
-
-            if new_files_count > 0:
-                print(f"   New files detected: {new_files_count}")
-                print(f"\n🔄 Uploading new files to file search store...\n")
-
-                # Upload only new files (incremental upload)
-                success = self.upload_files_to_gemini(collection_key)
-
-                if not success:
-                    print(f"❌ File upload failed. Cannot proceed with query.")
-                    return None
-
-                print(f"\n{'='*80}")
-                print(f"New files uploaded successfully. Proceeding with query...")
-                print(f"{'='*80}\n")
-            else:
-                print(f"\n✅ All files up to date. Proceeding with query...\n")
+            print(f"\n✅ All files up to date. Proceeding with query...\n")
 
         # Load query request
         print(f"Loading query request from Zotero...")
@@ -614,27 +618,9 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                         self.genai_types.Tool(
                             file_search={'file_search_store_names': [self.file_search_store_name]}
                         )
-                    )
-
-                    # Success!
-                    print(f"✅ Successfully generated response with {model_name}")
-                    break
-
-                except Exception as model_error:
-                    error_str = str(model_error)
-                    last_error = model_error
-
-                    # Check if it's a 503 overloaded error
-                    if '503' in error_str and 'overloaded' in error_str.lower():
-                        print(f"⚠️  {model_name} is overloaded, trying next model...")
-                        continue
-                    else:
-                        # Different error, don't try other models
-                        raise
-
-            if response is None:
-                # All models failed
-                raise last_error if last_error else Exception("All models failed")
+                    ]
+                )
+            )
 
             # Extract response text with proper None handling
             response_text = None
