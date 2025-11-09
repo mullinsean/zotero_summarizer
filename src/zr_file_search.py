@@ -222,7 +222,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         if self.force_rebuild and self.file_search_store_name:
             print(f"🗑️  Force rebuild: Deleting existing file search store...")
             try:
-                self.genai_client.file_search_stores.delete(name=self.file_search_store_name)
+                # Use config={'force': True} to delete non-empty stores (removes all documents)
+                self.genai_client.file_search_stores.delete(
+                    name=self.file_search_store_name,
+                    config={'force': True}
+                )
                 print(f"  Deleted store: {self.file_search_store_name}")
                 self.file_search_store_name = None
                 self.uploaded_files = {}
@@ -333,15 +337,39 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     print(f"  ❌ Failed to download attachment")
                     continue
 
-                # Determine file extension
+                # Determine file extension and handle HTML specially
                 if self.is_pdf_attachment(attachment):
                     ext = 'pdf'
+                    upload_content = content
                 elif self.is_html_attachment(attachment):
-                    ext = 'html'
+                    # Extract clean text from HTML snapshot (Gemini has issues with raw HTML)
+                    print(f"  📝 Extracting text from HTML snapshot...")
+                    try:
+                        text_content = self.extract_text_from_html(content)
+                        if not text_content or len(text_content.strip()) < 100:
+                            print(f"  ⚠️  HTML extraction produced no usable text, skipping...")
+                            continue
+                        # Upload as plain text instead of HTML
+                        ext = 'txt'
+                        upload_content = text_content.encode('utf-8')
+                        print(f"  ✅ Extracted {len(text_content)} characters")
+                    except Exception as extract_error:
+                        print(f"  ⚠️  Failed to extract text from HTML: {extract_error}")
+                        print(f"  ⏭️  Skipping this HTML file...")
+                        continue
                 elif self.is_txt_attachment(attachment):
                     ext = 'txt'
+                    upload_content = content
                 else:
                     ext = 'bin'
+                    upload_content = content
+
+                # Check file size (free tier has limits)
+                file_size_mb = len(upload_content) / (1024 * 1024)
+                if file_size_mb > 50:  # 50MB limit for free tier
+                    print(f"  ⚠️  File too large ({file_size_mb:.1f}MB), skipping...")
+                    skipped_count += 1
+                    continue
 
                 # Create temporary file for upload
                 temp_filename = f"zotero_{item_key}_{attachment_key}.{ext}"
@@ -350,46 +378,80 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 try:
                     # Write content to temp file
                     with open(temp_path, 'wb') as f:
-                        f.write(content)
+                        f.write(upload_content)
 
-                    # Upload to Gemini File Search Store
+                    # Upload to Gemini File Search Store with retry logic
                     print(f"  ☁️  Uploading to file search store...")
 
-                    upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
-                        file=temp_path,
-                        file_search_store_name=self.file_search_store_name,
-                        config={'display_name': f"{item_title} - {attachment_title}"}
-                    )
+                    max_retries = 5  # Increased from 3
+                    retry_delay = 5  # Start with 5 seconds (was 2)
+                    upload_success = False
 
-                    # Wait for upload operation to complete
-                    print(f"  ⏳ Waiting for upload to complete...")
-                    max_wait = 120  # 2 minutes
-                    waited = 0
-                    while not upload_op.done and waited < max_wait:
-                        time.sleep(5)
-                        waited += 5
-                        upload_op = self.genai_client.operations.get(upload_op)
+                    for retry in range(max_retries):
+                        try:
+                            upload_op = self.genai_client.file_search_stores.upload_to_file_search_store(
+                                file=temp_path,
+                                file_search_store_name=self.file_search_store_name,
+                                config={'display_name': f"{item_title} - {attachment_title}"}
+                            )
 
-                    if not upload_op.done:
-                        print(f"  ⚠️  Upload operation timed out after {max_wait}s")
-                        error_count += 1
-                    else:
-                        # Track uploaded file
-                        self.uploaded_files[item_key] = temp_filename
-                        uploaded_count += 1
-                        uploaded = True
+                            # Wait for upload operation to complete
+                            if retry > 0:
+                                print(f"  ⏳ Waiting for upload to complete (attempt {retry + 1}/{max_retries})...")
+                            else:
+                                print(f"  ⏳ Waiting for upload to complete...")
+                            max_wait = 120  # 2 minutes
+                            waited = 0
+                            while not upload_op.done and waited < max_wait:
+                                time.sleep(5)
+                                waited += 5
+                                upload_op = self.genai_client.operations.get(upload_op)
 
-                        print(f"  ✅ Uploaded successfully")
+                            if not upload_op.done:
+                                print(f"  ⚠️  Upload operation timed out after {max_wait}s")
+                                error_count += 1
+                            else:
+                                # Track uploaded file
+                                self.uploaded_files[item_key] = temp_filename
+                                uploaded_count += 1
+                                uploaded = True
+                                upload_success = True
+
+                                if retry > 0:
+                                    print(f"  ✅ Uploaded successfully (after {retry + 1} attempts)")
+                                else:
+                                    print(f"  ✅ Uploaded successfully")
+
+                            break  # Success, exit retry loop
+
+                        except Exception as upload_error:
+                            if retry < max_retries - 1:
+                                # Check if it's a rate limit error
+                                error_msg = str(upload_error)
+                                if 'terminated' in error_msg.lower() or 'rate' in error_msg.lower() or '429' in error_msg:
+                                    print(f"  ⚠️  Rate limit hit - waiting {retry_delay}s before retry (attempt {retry + 1}/{max_retries})")
+                                    time.sleep(retry_delay)
+                                    retry_delay = min(retry_delay * 2, 60)  # Exponential backoff, max 60s
+                                else:
+                                    # Different error, don't retry
+                                    raise
+                            else:
+                                # Last retry failed
+                                print(f"  ⚠️  All {max_retries} retry attempts exhausted")
+                                raise
 
                     # Clean up temp file
-                    os.remove(temp_path)
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
 
-                    break  # Successfully uploaded, move to next item
+                    if upload_success:
+                        break  # Successfully uploaded, move to next item
 
                 except Exception as e:
                     print(f"  ❌ Error uploading: {e}")
-                    import traceback
-                    traceback.print_exc()
+                    if self.verbose:
+                        import traceback
+                        traceback.print_exc()
                     error_count += 1
                     # Clean up temp file on error
                     if os.path.exists(temp_path):
@@ -400,8 +462,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 print(f"  ⚠️  No compatible attachments found")
                 skipped_count += 1
 
-            # Rate limiting
-            time.sleep(self.rate_limit_delay)
+            # Rate limiting - use longer delay for file uploads (free tier has stricter limits)
+            # Default rate_limit_delay is 0.1s, but file uploads need more breathing room
+            upload_delay = max(self.rate_limit_delay, 3.0)  # Minimum 3 seconds between uploads
+            time.sleep(upload_delay)
 
         # Save state
         print(f"\n{'='*80}")
@@ -550,9 +614,27 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                         self.genai_types.Tool(
                             file_search={'file_search_store_names': [self.file_search_store_name]}
                         )
-                    ]
-                )
-            )
+                    )
+
+                    # Success!
+                    print(f"✅ Successfully generated response with {model_name}")
+                    break
+
+                except Exception as model_error:
+                    error_str = str(model_error)
+                    last_error = model_error
+
+                    # Check if it's a 503 overloaded error
+                    if '503' in error_str and 'overloaded' in error_str.lower():
+                        print(f"⚠️  {model_name} is overloaded, trying next model...")
+                        continue
+                    else:
+                        # Different error, don't try other models
+                        raise
+
+            if response is None:
+                # All models failed
+                raise last_error if last_error else Exception("All models failed")
 
             # Extract response text with proper None handling
             response_text = None
@@ -603,9 +685,19 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             print(f"Response preview: {response_text[:500]}...\n" if len(response_text) > 500 else f"Response: {response_text}\n")
 
         except Exception as e:
-            print(f"❌ Error running Gemini query: {e}")
-            import traceback
-            traceback.print_exc()
+            error_str = str(e)
+
+            # Provide helpful error messages
+            if '503' in error_str and 'overloaded' in error_str.lower():
+                print(f"❌ All Gemini models are currently overloaded.")
+                print(f"   This is a temporary issue on Google's side.")
+                print(f"   Please try again in a few minutes.")
+            else:
+                print(f"❌ Error running Gemini query: {e}")
+
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
             return None
 
         # Create Research Report note
