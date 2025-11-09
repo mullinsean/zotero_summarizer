@@ -75,27 +75,34 @@ uv run python -m src.zresearcher --query-summary \
 
 **ZoteroResearcher - File Search (Google Gemini RAG)**
 ```bash
-# Step 1: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
+# Step 1: Upload files to Gemini file search store
+uv run python -m src.zresearcher --upload-files \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Force re-upload of all files (deletes existing file search store and re-uploads)
+uv run python -m src.zresearcher --upload-files \
+    --collection COLLECTION_KEY --project "My Research Project" --force
+
+# Step 2: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
 #   - 【Query Request】 (your File Search query)
 
-# Step 2: Run File Search query (auto-uploads files if needed, then queries)
+# Step 3: Run File Search query (requires files to be uploaded first)
 uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project"
 
 # Verbose mode for detailed logging
 uv run python -m src.zresearcher --file-search \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
-
-# Force re-upload of all files (deletes existing file search store and re-uploads)
-uv run python -m src.zresearcher --file-search \
-    --collection COLLECTION_KEY --project "My Research Project" --force
 ```
 
 **Implementation Details:**
 - Uses Google Gemini File Search Stores for efficient RAG querying
+- Two-stage workflow: upload files first (--upload-files), then run queries (--file-search)
 - Files are uploaded to a dedicated file search store (not passed in context)
 - Store is used as a tool during generation, avoiding context window limits
 - Supports large collections (tested with 70+ files)
+- Incremental uploads: only new files are uploaded on subsequent --upload-files runs
+- Automatically detects and warns about new files not yet uploaded
 - Automatically extracts and displays grounding sources
 - Store name and upload state tracked in Project Config note
 
@@ -221,17 +228,24 @@ src/
 
 **`zr_file_search.py`** - File Search Workflow (Google Gemini RAG)
 - `ZoteroFileSearcher` class (inherits from `ZoteroResearcherBase`)
-  - `run_file_search()` - Query Gemini File Search (auto-uploads if needed) and save results
-  - `upload_files_to_gemini()` - Upload collection files to Gemini file search store
+  - **Stage 1: Upload Files (`upload_files_to_gemini()`)**
+    - Upload collection files to Gemini file search store
+    - Create or reuse existing file search store
+    - Support incremental uploads (only new files uploaded)
+    - Track uploaded files in Project Config note
+    - Support force rebuild (delete and recreate store)
+  - **Stage 2: Query (`run_file_search()`)**
+    - Verify files have been uploaded (error if not)
+    - Warn about new files not yet uploaded
+    - Query Gemini File Search and save results
+    - Create numbered Research Report notes with grounding sources
   - `load_query_request_from_zotero()` - Load query from Zotero note
   - `_load_gemini_state_from_config()` - Load store name and upload state from Project Config
   - `_save_gemini_state_to_config()` - Save store name and upload state to Project Config
   - Uses Google Gemini File Search Stores (genai.Client API)
   - Files uploaded to dedicated store, used as tool (not in context window)
   - Supports PDF, HTML, and TXT attachments
-  - Creates numbered Research Report notes with grounding sources
   - Free storage and embedding; $0.15 per 1M tokens for indexing
-  - Smart upload: Only uploads on first run or with --force flag
   - Avoids context window limits by using file search as a tool
 
 **`zr_cleanup.py`** - Cleanup Workflow (Delete Projects & Summary Notes)

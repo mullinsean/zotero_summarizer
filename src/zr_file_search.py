@@ -511,7 +511,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
     def run_file_search(self, collection_key: str) -> Optional[str]:
         """
         Run Gemini File Search query and save results as Research Report.
-        Automatically uploads files if not already uploaded.
+        Requires files to be uploaded first (use --upload-files).
 
         Args:
             collection_key: Collection key to process
@@ -540,53 +540,37 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         self.file_search_store_name = gemini_state['file_search_store_name']
         self.uploaded_files = gemini_state['uploaded_files']
 
-        # Auto-upload if no store exists
-        if not self.file_search_store_name:
-            print(f"ℹ️  No file search store found. Creating store and uploading files...\n")
+        # Check if files have been uploaded
+        if not self.file_search_store_name or not self.uploaded_files:
+            print(f"❌ No file search store found. Please upload files first.\n")
+            print(f"Run the following command to upload files:")
+            print(f"  uv run python -m src.zresearcher --upload-files \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return None
 
-            # Upload files
-            success = self.upload_files_to_gemini(collection_key)
+        # Check for new files that haven't been uploaded yet
+        items = self.get_collection_items(collection_key)
+        new_files_count = 0
+        for item in items:
+            item_key = item['key']
+            item_type = item['data'].get('itemType')
+            if item_type in ['note', 'attachment']:
+                continue
+            if item_key not in self.uploaded_files:
+                new_files_count += 1
 
-            if not success:
-                print(f"❌ File upload failed. Cannot proceed with query.")
-                return None
-
-            print(f"\n{'='*80}")
-            print(f"Files uploaded successfully. Proceeding with query...")
-            print(f"{'='*80}\n")
+        if new_files_count > 0:
+            print(f"⚠️  Warning: {new_files_count} new file(s) detected in collection")
+            print(f"   These files are not included in the file search store.")
+            print(f"   Run --upload-files to include them in searches:\n")
+            print(f"  uv run python -m src.zresearcher --upload-files \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            print(f"Proceeding with query using {len(self.uploaded_files)} uploaded files...\n")
         else:
-            # Store exists - check for new files to upload
-            print(f"ℹ️  Using existing file search store")
+            print(f"ℹ️  Using file search store")
             print(f"   Store: {self.file_search_store_name}")
             print(f"   Files uploaded: {len(self.uploaded_files)}")
-
-            # Check if there are new files in collection
-            items = self.get_collection_items(collection_key)
-            new_files_count = 0
-            for item in items:
-                item_key = item['key']
-                item_type = item['data'].get('itemType')
-                if item_type in ['note', 'attachment']:
-                    continue
-                if item_key not in self.uploaded_files:
-                    new_files_count += 1
-
-            if new_files_count > 0:
-                print(f"   New files detected: {new_files_count}")
-                print(f"\n🔄 Uploading new files to file search store...\n")
-
-                # Upload only new files (incremental upload)
-                success = self.upload_files_to_gemini(collection_key)
-
-                if not success:
-                    print(f"❌ File upload failed. Cannot proceed with query.")
-                    return None
-
-                print(f"\n{'='*80}")
-                print(f"New files uploaded successfully. Proceeding with query...")
-                print(f"{'='*80}\n")
-            else:
-                print(f"\n✅ All files up to date. Proceeding with query...\n")
+            print(f"\n✅ All files up to date. Proceeding with query...\n")
 
         # Load query request
         print(f"Loading query request from Zotero...")

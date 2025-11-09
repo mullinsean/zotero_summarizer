@@ -64,8 +64,14 @@ Examples:
   # Rebuild all summaries for a project
   python zresearcher.py --build-summaries --collection KEY --project "AI Productivity" --force
 
-  # File Search: Run Gemini RAG query (auto-uploads if needed)
+  # File Search Stage 1: Upload files to Gemini file search store
+  python zresearcher.py --upload-files --collection KEY --project "AI Productivity"
+
+  # File Search Stage 2: Run Gemini RAG query (requires files to be uploaded first)
   python zresearcher.py --file-search --collection KEY --project "AI Productivity"
+
+  # Force re-upload all files (deletes and recreates file search store)
+  python zresearcher.py --upload-files --collection KEY --project "AI Productivity" --force
 
   # Cleanup: Remove a specific project (preview with --dry-run)
   python zresearcher.py --cleanup-project --collection KEY --project "AI Productivity" --dry-run
@@ -110,9 +116,14 @@ Examples:
         help='Phase 2: Query sources using research brief from Zotero notes'
     )
     mode_group.add_argument(
+        '--upload-files',
+        action='store_true',
+        help='Google Gemini File Search: upload collection files to file search store (requires GEMINI_API_KEY)'
+    )
+    mode_group.add_argument(
         '--file-search',
         action='store_true',
-        help='Google Gemini File Search: query sources using RAG (auto-uploads if needed, requires GEMINI_API_KEY)'
+        help='Google Gemini File Search: query sources using RAG (requires files to be uploaded first, requires GEMINI_API_KEY)'
     )
     mode_group.add_argument(
         '--cleanup-project',
@@ -195,8 +206,8 @@ Examples:
         print("Please set ANTHROPIC_API_KEY in your .env file")
         return
 
-    if args.file_search and not gemini_api_key:
-        print("Error: Missing required GEMINI_API_KEY for File Search")
+    if (args.file_search or args.upload_files) and not gemini_api_key:
+        print("Error: Missing required GEMINI_API_KEY for File Search operations")
         print("Please set GEMINI_API_KEY in your .env file")
         return
 
@@ -205,6 +216,7 @@ Examples:
         args.init_collection,
         args.build_summaries,
         args.query_summary,
+        args.upload_files,
         args.file_search,
         args.cleanup_project
     ]
@@ -333,6 +345,27 @@ Examples:
                 print(f"Note: Report saved as note in project subcollection")
         return
 
+    # Handle --upload-files mode
+    if args.upload_files:
+        searcher = ZoteroFileSearcher(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Optional for file upload
+            gemini_api_key,
+            project_name=project_name,
+            force_rebuild=args.force,
+            verbose=args.verbose
+        )
+
+        # Upload files to Gemini file search store
+        result = searcher.upload_files_to_gemini(collection_key)
+        if result:
+            print(f"✅ File upload completed successfully")
+        else:
+            print(f"❌ File upload failed")
+        return
+
     # Handle --file-search mode
     if args.file_search:
         searcher = ZoteroFileSearcher(
@@ -346,7 +379,7 @@ Examples:
             verbose=args.verbose
         )
 
-        # Run file search (auto-uploads if needed)
+        # Run file search (requires files to be uploaded first)
         result = searcher.run_file_search(collection_key)
         if result:
             print(f"✅ File search query completed successfully")
