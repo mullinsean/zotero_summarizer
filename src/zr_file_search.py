@@ -598,27 +598,9 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                         self.genai_types.Tool(
                             file_search={'file_search_store_names': [self.file_search_store_name]}
                         )
-                    )
-
-                    # Success!
-                    print(f"✅ Successfully generated response with {model_name}")
-                    break
-
-                except Exception as model_error:
-                    error_str = str(model_error)
-                    last_error = model_error
-
-                    # Check if it's a 503 overloaded error
-                    if '503' in error_str and 'overloaded' in error_str.lower():
-                        print(f"⚠️  {model_name} is overloaded, trying next model...")
-                        continue
-                    else:
-                        # Different error, don't try other models
-                        raise
-
-            if response is None:
-                # All models failed
-                raise last_error if last_error else Exception("All models failed")
+                    ]
+                )
+            )
 
             # Extract response text with proper None handling
             response_text = None
