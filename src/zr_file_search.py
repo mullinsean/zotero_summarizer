@@ -554,8 +554,35 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 )
             )
 
-            # Extract response text
-            response_text = response.text if hasattr(response, 'text') else str(response)
+            # Extract response text with proper None handling
+            response_text = None
+            if hasattr(response, 'text') and response.text is not None:
+                response_text = response.text
+            elif hasattr(response, 'candidates') and len(response.candidates) > 0:
+                # Try to extract from candidates
+                candidate = response.candidates[0]
+                if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                    parts_text = []
+                    for part in candidate.content.parts:
+                        if hasattr(part, 'text') and part.text:
+                            parts_text.append(part.text)
+                    if parts_text:
+                        response_text = ''.join(parts_text)
+
+            # Check if we got a valid response
+            if not response_text:
+                # Check for safety filtering or other issues
+                error_msg = "No response text received from Gemini API"
+                if hasattr(response, 'candidates') and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'finish_reason'):
+                        error_msg += f" (finish_reason: {candidate.finish_reason})"
+                    if hasattr(candidate, 'safety_ratings'):
+                        error_msg += f"\nSafety ratings: {candidate.safety_ratings}"
+                print(f"❌ {error_msg}")
+                if self.verbose:
+                    print(f"Full response: {response}")
+                return None
 
             # Extract grounding sources if available
             sources = []
