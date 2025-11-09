@@ -213,6 +213,16 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Project: {self.project_name}")
         print(f"{'='*80}\n")
 
+        # Verify project exists before uploading files
+        subcollection_name = self._get_subcollection_name()
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            print(f"❌ Project not found: {subcollection_name}")
+            print(f"\nPlease initialize the project first:")
+            print(f"  uv run python -m src.zresearcher --init-collection \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return False
+
         # Load existing Gemini state
         gemini_state = self._load_gemini_state_from_config(collection_key)
         self.file_search_store_name = gemini_state['file_search_store_name']
@@ -523,6 +533,16 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         print(f"Running Gemini File Search Query")
         print(f"Project: {self.project_name}")
         print(f"{'='*80}\n")
+
+        # Verify project exists before running query
+        subcollection_name = self._get_subcollection_name()
+        subcollection_key = self.get_subcollection(collection_key, subcollection_name)
+        if not subcollection_key:
+            print(f"❌ Project not found: {subcollection_name}")
+            print(f"\nPlease initialize the project first:")
+            print(f"  uv run python -m src.zresearcher --init-collection \\")
+            print(f"    --collection {collection_key} --project \"{self.project_name}\"\n")
+            return None
 
         # Load project configuration
         try:
