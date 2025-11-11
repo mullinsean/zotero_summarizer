@@ -8,6 +8,8 @@ Shared base class and utilities for all ZoteroResearcher workflows.
 import requests
 import trafilatura
 import fitz  # PyMuPDF
+from docx import Document
+from io import BytesIO
 from typing import Optional, Dict, List, Tuple, Any
 from anthropic import Anthropic
 
@@ -382,13 +384,94 @@ gemini_uploaded_files={}
             print(f"  ❌ Error extracting text: {e}")
             return None
 
+    def extract_text_from_docx(self, docx_content: bytes) -> Optional[str]:
+        """
+        Extract text from a DOCX file with structure preservation.
+        Converts headings, tables, and lists to markdown-like format.
+
+        Args:
+            docx_content: The DOCX file content as bytes
+
+        Returns:
+            Extracted text as markdown-like string, or None if extraction failed
+        """
+        try:
+            # Open DOCX from bytes using BytesIO
+            doc = Document(BytesIO(docx_content))
+
+            extracted_parts = []
+
+            # Extract text from paragraphs with style preservation
+            for paragraph in doc.paragraphs:
+                text = paragraph.text.strip()
+                if not text:
+                    continue
+
+                # Detect heading styles and convert to markdown
+                style_name = paragraph.style.name.lower()
+                if 'heading 1' in style_name:
+                    extracted_parts.append(f"\n# {text}\n")
+                elif 'heading 2' in style_name:
+                    extracted_parts.append(f"\n## {text}\n")
+                elif 'heading 3' in style_name:
+                    extracted_parts.append(f"\n### {text}\n")
+                elif 'heading 4' in style_name:
+                    extracted_parts.append(f"\n#### {text}\n")
+                elif 'heading 5' in style_name:
+                    extracted_parts.append(f"\n##### {text}\n")
+                elif 'heading 6' in style_name:
+                    extracted_parts.append(f"\n###### {text}\n")
+                else:
+                    extracted_parts.append(text)
+
+            # Extract text from tables
+            if doc.tables:
+                for table in doc.tables:
+                    extracted_parts.append("\n")  # Add spacing before table
+                    for i, row in enumerate(table.rows):
+                        row_text = []
+                        for cell in row.cells:
+                            cell_text = ' '.join(p.text.strip() for p in cell.paragraphs if p.text.strip())
+                            row_text.append(cell_text)
+
+                        # Create markdown-style table
+                        extracted_parts.append("| " + " | ".join(row_text) + " |")
+
+                        # Add separator after header row
+                        if i == 0:
+                            extracted_parts.append("| " + " | ".join(["---"] * len(row_text)) + " |")
+
+                    extracted_parts.append("\n")  # Add spacing after table
+
+            full_text = "\n".join(extracted_parts) if extracted_parts else None
+
+            # Check if document has meaningful content
+            if full_text and len(full_text.strip()) < 50:
+                print(f"  ⚠️  Warning: DOCX appears to have very little text content")
+
+            return full_text.strip() if full_text else None
+
+        except Exception as e:
+            # Check for specific error types
+            error_msg = str(e).lower()
+            if 'password' in error_msg or 'encrypted' in error_msg:
+                print(f"  ❌ Error: DOCX file appears to be password-protected")
+            elif 'not a zip file' in error_msg or 'bad zipfile' in error_msg:
+                # This likely means it's a legacy .doc file, not .docx
+                print(f"  ❌ Error: File appears to be legacy .doc format (not supported)")
+                print(f"  ℹ️  Tip: Convert to .docx format for extraction support")
+            else:
+                print(f"  ❌ Error extracting DOCX text: {e}")
+            return None
+
     def get_source_content(self, item: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
         Get content from a source using priority order:
         1. HTML snapshot (Trafilatura)
         2. PDF attachment (PyMuPDF)
-        3. TXT attachment (plain text)
-        4. URL fetch (for webpage items)
+        3. DOCX attachment (python-docx)
+        4. TXT attachment (plain text)
+        5. URL fetch (for webpage items)
 
         Args:
             item: The Zotero item
@@ -435,7 +518,22 @@ gemini_uploaded_files={}
                         if extracted:
                             return extracted, "PDF"
 
-            # Priority 3: Try TXT attachment
+            # Priority 3: Try DOCX attachment
+            for attachment in attachments:
+                if self.is_docx_attachment(attachment):
+                    attachment_title = attachment['data'].get('title', 'Untitled')
+                    attachment_key = attachment['key']
+
+                    print(f"  📄 Found DOCX attachment: {attachment_title}")
+                    print(f"  📥 Downloading and extracting...")
+
+                    docx_content = self.download_attachment(attachment_key)
+                    if docx_content:
+                        extracted = self.extract_text_from_docx(docx_content)
+                        if extracted:
+                            return extracted, "DOCX"
+
+            # Priority 4: Try TXT attachment
             for attachment in attachments:
                 if self.is_txt_attachment(attachment):
                     attachment_title = attachment['data'].get('title', 'Untitled')
@@ -450,7 +548,7 @@ gemini_uploaded_files={}
                         if extracted:
                             return extracted, "TXT"
 
-        # Priority 4: Try fetching from URL (for webpage items)
+        # Priority 5: Try fetching from URL (for webpage items)
         item_url = item_data.get('url')
         if item_url and item_data.get('itemType') == 'webpage':
             print(f"  🌐 Fetching from URL: {item_url}")
