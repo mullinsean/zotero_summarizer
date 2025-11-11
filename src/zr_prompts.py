@@ -316,9 +316,6 @@ def research_synthesis_prompt(
 
     return f"""You are a research synthesis specialist tasked with creating a meta-analysis of research findings. You have been provided with a detailed research report that contains summaries of multiple sources. Your goal is to synthesize these findings into a cohesive, high-level analysis that directly addresses the original research brief.
 
-Project Overview:
-{project_overview}
-
 Research Brief:
 {research_brief}
 
