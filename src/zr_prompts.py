@@ -112,7 +112,41 @@ def relevance_evaluation_prompt(
     Returns:
         Formatted prompt string
     """
-    return f"""Research Brief:
+    return f"""You are a meticulous relevance rater. Read the RESEARCH BRIEF and the SOURCE (metadata + summary), then rate how relevant the SOURCE is to the BRIEF.
+
+Output Rules (STRICT):
+- Return ONLY a single integer between 0 and 10 inclusive.
+- No words, no spaces, no punctuation, no JSON, no explanation.
+- If you cannot evaluate (e.g., empty text, wrong language, corrupted), output 0.
+- Your output must match this regex: ^([0-9]|10)$
+
+Scoring Rubric (compute 0–10, round to nearest integer, then apply the bonus rule below; cap at 10):
+1) Topical Alignment (0–5) — Does the SOURCE directly address the BRIEF’s research question/scope?
+   0–1: tangential/mostly off-topic
+   2–3: partially related; covers some aspects
+   4: strongly related; substantial overlap
+   5: directly on-point and central
+   Use the Tags to refine alignment: overlapping tags with BRIEF keywords → stronger alignment; contradictory/orthogonal tags → weaker.
+
+2) Credibility & Source Type (0–3) — Trustworthiness/authoritativeness.
+   3: primary/official sources (government/statistical agencies, legislation, ministerial speeches/transcripts, audited administrative datasets) OR peer-reviewed studies/standards bodies
+   2: reputable think tanks, established news with transparent methods/sourcing, named experts with citations
+   1: mixed/unclear sourcing; lightly referenced blogs
+   0: anonymous, unsourced, promotional, or unverifiable
+   Tags indicating "government", "official statistics", "legislation", "ministerial speech", "dataset" should strengthen this category.
+
+3) Timeliness / Temporal Fit (0–1) — Recency or correct historical window for the topic.
+   1: timely for a fast-moving topic OR clearly within the required time period
+   0: dated/mismatched timeframe
+
+4) Utility & Specificity (0–1) — Actionable content (methods, data tables, case studies, concrete findings).
+   1: offers directly usable specifics
+   0: generic commentary only
+
+Bonus Rule (apply after summing 0–10, then cap at 10):
++1 if the BRIEF explicitly asks for quantitative figures/data and the SOURCE contains directly usable quantitative evidence (e.g., tables/datasets/clear methods/statistics). Cap the final score at 10.
+
+Research Brief:
 {research_brief}
 
 Source Metadata:
@@ -124,14 +158,8 @@ Source Metadata:
 
 Source Summary:
 {summary}
+"""
 
-Rate the relevance of this source to the research brief on a scale of 0-10, where:
-- 0 = Completely irrelevant
-- 5 = Somewhat relevant, provides background or tangential information
-- 10 = Highly relevant, directly addresses the research question
-
-Consider the tags, metadata, and summary content when evaluating relevance.
-Provide ONLY a single number (0-10) as your response, nothing else."""
 
 
 def targeted_summary_prompt(
