@@ -535,9 +535,63 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             operation_name="running file search"
         )
 
+    def generate_report_title(self, query_request: str) -> str:
+        """
+        Generate an appropriate title for the file search report based on the query request.
+
+        Args:
+            query_request: The query request to generate a title for
+
+        Returns:
+            Generated title string, or fallback title if generation fails
+        """
+        try:
+            # Truncate query if too long (keep first 2000 chars)
+            query_for_prompt = query_request[:2000] if len(query_request) > 2000 else query_request
+
+            prompt = f"""Based on the following query request, generate a concise, professional title for a research report (max 10 words).
+
+Query Request:
+{query_for_prompt}
+
+Respond with ONLY the title, nothing else. No quotes, no punctuation at the end."""
+
+            # Use Haiku for fast, cost-efficient title generation
+            title = self.llm_client.call(
+                prompt=prompt,
+                max_tokens=50,
+                model=self.haiku_model,
+                temperature=0.5
+            )
+
+            if title:
+                # Clean up the title - remove quotes if present
+                title = title.strip().strip('"\'')
+                # Limit length
+                if len(title) > 100:
+                    title = title[:97] + "..."
+                return title
+            else:
+                # Fallback to simple extraction from query
+                query_lines = query_request.strip().split('\n')
+                fallback = query_lines[0] if query_lines else "File Search Report"
+                if len(fallback) > 100:
+                    fallback = fallback[:97] + "..."
+                return fallback
+
+        except Exception as e:
+            if self.verbose:
+                print(f"  ⚠️  Error generating title: {e}")
+            # Fallback to simple extraction from query
+            query_lines = query_request.strip().split('\n')
+            fallback = query_lines[0] if query_lines else "File Search Report"
+            if len(fallback) > 100:
+                fallback = fallback[:97] + "..."
+            return fallback
+
     def run_file_search(self, collection_key: str) -> Optional[str]:
         """
-        Run Gemini File Search query and save results as Research Report.
+        Run Gemini File Search query and save results as File Search Report.
         Requires files to be uploaded first (use --upload-files).
 
         Args:
@@ -618,6 +672,11 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         except (FileNotFoundError, ValueError) as e:
             print(f"❌ {e}")
             return None
+
+        # Generate report title
+        print(f"Generating report title...")
+        generated_title = self.generate_report_title(query_request)
+        print(f"✅ Report title: {generated_title}\n")
 
         # Run Gemini query using file search store as a tool
         print(f"Running Gemini query with file search store...")
@@ -703,19 +762,14 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 traceback.print_exc()
             return None
 
-        # Create Research Report note
-        print(f"Creating Research Report note in Zotero...")
+        # Create File Search Report note
+        print(f"Creating File Search Report note in Zotero...")
 
         # Get subcollection
         subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
 
-        # Count existing reports to generate report number
-        notes = self.get_collection_notes(subcollection_key)
-        report_count = sum(1 for note in notes if '【Research Report #' in self.get_note_title_from_html(note['data']['note']))
-        report_number = report_count + 1
-
-        # Format report
-        report_title = self._get_research_report_note_title(report_number)
+        # Use generated title
+        report_title = f"File Search Report: {generated_title}"
 
         sources_section = ""
         if sources:
@@ -763,12 +817,12 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             )
 
             if note_key:
-                print(f"✅ Research Report created: {report_title}")
+                print(f"✅ File Search Report created: {report_title}")
                 print(f"   Note key: {note_key}\n")
                 print(f"{'='*80}\n")
                 return note_key
             else:
-                print(f"❌ Failed to create Research Report note\n")
+                print(f"❌ Failed to create File Search Report note\n")
                 return None
 
         except Exception as e:

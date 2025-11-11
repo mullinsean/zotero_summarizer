@@ -105,6 +105,7 @@ uv run python -m src.zresearcher --file-search \
 - Incremental uploads: only new files are uploaded on subsequent --upload-files runs
 - Automatically detects and warns about new files not yet uploaded
 - Automatically extracts and displays grounding sources
+- LLM-generated report titles based on query request (format: "File Search Report: {title}")
 - Store name and upload state tracked in Project Config note
 
 **ZoteroResearcher - Cleanup**
@@ -239,8 +240,10 @@ src/
     - Verify files have been uploaded (error if not)
     - Warn about new files not yet uploaded
     - Query Gemini File Search and save results
-    - Create numbered Research Report notes with grounding sources
+    - Generate LLM-based report title from query request
+    - Create File Search Report notes with grounding sources (format: "File Search Report: {title}")
   - `load_query_request_from_zotero()` - Load query from Zotero note
+  - `generate_report_title()` - Generate LLM-based title from query request
   - `_load_gemini_state_from_config()` - Load store name and upload state from Project Config
   - `_save_gemini_state_to_config()` - Save store name and upload state to Project Config
   - Uses Google Gemini File Search Stores (genai.Client API)
