@@ -176,7 +176,7 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
         Returns:
             Note key if synthesis created, None if generation fails or is disabled
         """
-        if not self.generate_synthesis:
+        if not self.synthesis_enabled:
             if self.verbose:
                 print(f"  ℹ️  Research synthesis disabled (generate_synthesis=false in config)")
             return None

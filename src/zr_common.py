@@ -111,7 +111,7 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         self.relevance_threshold = 6
         self.max_sources = 50
         self.use_sonnet = False
-        self.generate_synthesis = True  # Default: enabled
+        self.synthesis_enabled = True  # Default: enabled
 
         # LLM model configuration
         self.haiku_model = "claude-haiku-4-5-20251001"
@@ -725,7 +725,7 @@ gemini_uploaded_files={}
 
         if 'generate_synthesis' in config:
             if isinstance(config['generate_synthesis'], bool):
-                self.generate_synthesis = config['generate_synthesis']
+                self.synthesis_enabled = config['generate_synthesis']
             elif self.verbose:
                 print(f"  ⚠️  Invalid generate_synthesis: must be true/false, got {config['generate_synthesis']}")
 
