@@ -241,3 +241,77 @@ DATE:
 <date here>
 
 Provide ONLY the metadata in the format above, nothing else."""
+
+
+def research_synthesis_prompt(
+    project_overview: str,
+    research_brief: str,
+    research_report: str
+) -> str:
+    """
+    Prompt for generating a meta-analysis synthesis of research findings.
+
+    Used after Phase 2 (query) to create a high-level synthesis of the
+    research report based on the original research brief and project overview.
+
+    Args:
+        project_overview: Description of research project and goals
+        research_brief: The original research question/brief
+        research_report: The full research report HTML content
+
+    Returns:
+        Formatted prompt string
+    """
+    # Truncate report if too long (keep first 400K chars to leave room for context)
+    report_for_prompt = research_report[:400000] if len(research_report) > 400000 else research_report
+    truncation_note = "\n\n**NOTE: This research report has been truncated to fit within the context window. You are analyzing a partial view of the full report.**" if len(research_report) > 400000 else ""
+
+    return f"""You are a research synthesis specialist tasked with creating a meta-analysis of research findings. You have been provided with a detailed research report that contains summaries of multiple sources. Your goal is to synthesize these findings into a cohesive, high-level analysis that directly addresses the original research brief.
+
+Project Overview:
+{project_overview}
+
+Research Brief:
+{research_brief}
+
+Research Report:{truncation_note}
+{report_for_prompt}
+
+Please create a comprehensive research synthesis that includes:
+
+## 1. Executive Summary
+Provide a concise 2-3 paragraph overview of the key findings and their significance to the research brief.
+
+## 2. Main Themes and Patterns
+Identify and analyze the major themes, patterns, and trends that emerge across the sources. Group related findings together and explain their significance.
+
+## 3. Key Findings
+Present the most important findings from the research, organized by theme or topic. Include:
+- Quantitative data and statistics where available
+- Qualitative insights and expert opinions
+- Consensus areas (where multiple sources agree)
+- Areas of disagreement or debate
+- Notable gaps in the research
+
+For each finding, cite the specific sources (by title) that support it.
+
+## 4. Implications and Insights
+Discuss the broader implications of these findings for the research question. What do these findings mean? How do they address the original research brief?
+
+## 5. Recommendations
+Based on the synthesis of findings, provide actionable recommendations or next steps related to the research question.
+
+## 6. Research Gaps and Future Directions
+Identify areas where the research is incomplete or where further investigation would be valuable.
+
+Guidelines:
+- Write in a clear, professional academic tone
+- Use markdown formatting for structure and readability
+- Cite sources by title when referencing specific findings
+- Focus on synthesis and analysis, not just summary
+- Connect findings back to the original research brief
+- Highlight both areas of consensus and debate
+- Be specific - use concrete examples, quotes, and data points
+- Aim for 1500-2500 words
+
+Format your response using clear markdown headings (##) and structure. Begin your synthesis below:"""

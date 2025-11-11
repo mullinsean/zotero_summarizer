@@ -133,6 +133,130 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
             traceback.print_exc()
             return None
 
+    def load_project_overview_from_zotero(self, collection_key: str) -> str:
+        """
+        Load project overview from project-specific subcollection note.
+
+        Args:
+            collection_key: Parent collection key
+
+        Returns:
+            Project overview text
+
+        Raises:
+            FileNotFoundError: If subcollection or note not found
+            ValueError: If note still contains template placeholder
+        """
+        return self.load_note_from_subcollection(
+            collection_key,
+            self._get_project_overview_note_title(),
+            check_todo=True,
+            remove_title_line=True,
+            remove_footer=True,
+            operation_name="running query"
+        )
+
+    def generate_synthesis(
+        self,
+        collection_key: str,
+        report_title: str,
+        report_content: str
+    ) -> Optional[str]:
+        """
+        Generate a research synthesis from the research report.
+
+        Loads project overview and research brief, then calls Claude Sonnet
+        to create a meta-analysis synthesis of the research findings.
+
+        Args:
+            collection_key: The Zotero collection key
+            report_title: Title of the research report
+            report_content: Full HTML content of the research report
+
+        Returns:
+            Note key if synthesis created, None if generation fails or is disabled
+        """
+        if not self.generate_synthesis:
+            if self.verbose:
+                print(f"  ℹ️  Research synthesis disabled (generate_synthesis=false in config)")
+            return None
+
+        print(f"\n{'='*80}")
+        print(f"Generating Research Synthesis")
+        print(f"{'='*80}\n")
+
+        # Load project overview
+        print(f"  Loading project overview...")
+        try:
+            project_overview = self.load_project_overview_from_zotero(collection_key)
+            print(f"  ✅ Loaded project overview ({len(project_overview)} characters)")
+        except (FileNotFoundError, ValueError) as e:
+            print(f"  ⚠️  Could not load project overview: {e}")
+            print(f"  ℹ️  Skipping synthesis generation")
+            return None
+
+        # Generate synthesis using Sonnet
+        print(f"  Generating synthesis with Claude Sonnet...")
+        print(f"  (This may take a minute for large reports)")
+
+        try:
+            prompt = zr_prompts.research_synthesis_prompt(
+                project_overview=project_overview,
+                research_brief=self.research_brief,
+                research_report=report_content
+            )
+
+            # Use Sonnet (not Haiku) for high-quality synthesis
+            synthesis_text = self.llm_client.call(
+                prompt=prompt,
+                max_tokens=16000,  # Allow for comprehensive synthesis
+                model=self.sonnet_model,  # Always use Sonnet for synthesis
+                temperature=0.3
+            )
+
+            if not synthesis_text:
+                print(f"  ❌ Failed to generate synthesis (empty response)")
+                return None
+
+            print(f"  ✅ Synthesis generated ({len(synthesis_text)} characters)")
+
+        except Exception as e:
+            print(f"  ❌ Error generating synthesis: {e}")
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
+            return None
+
+        # Save synthesis as note in project subcollection
+        print(f"  Saving synthesis to Zotero...")
+
+        subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
+        if not subcollection_key:
+            print(f"  ❌ {self._get_subcollection_name()} subcollection not found")
+            return None
+
+        try:
+            synthesis_note_key = self.create_standalone_note(
+                subcollection_key,
+                synthesis_text,
+                f"Research Synthesis: {report_title}",
+                convert_markdown=True
+            )
+
+            if synthesis_note_key:
+                print(f"  ✅ Synthesis note created in {self._get_subcollection_name()}")
+                return synthesis_note_key
+            else:
+                print(f"  ❌ Failed to create synthesis note")
+                return None
+
+        except Exception as e:
+            print(f"  ❌ Error saving synthesis note: {e}")
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
+            return None
+
     def generate_report_title(self, research_brief: str) -> str:
         """
         Generate an appropriate title for the research report based on the research brief.
@@ -573,6 +697,9 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             else:
                 print(f"  ⚠️  Failed to create stub note")
 
+            # Generate research synthesis
+            synthesis_key = self.generate_synthesis(collection_key, report_title, html_content)
+
             # Final summary
             print(f"\n{'='*80}")
             print(f"✅ Query Complete")
@@ -583,6 +710,8 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             print(f"Relevant: {stats['relevant']}")
             print(f"Processing time: {stats['time']}")
             print(f"Report: {output_file} (with stub note in Zotero)")
+            if synthesis_key:
+                print(f"Synthesis: Created in {self._get_subcollection_name()}")
             print(f"{'='*80}\n")
 
             return output_file
@@ -605,6 +734,9 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
                 print(f"  ❌ Failed to create report note")
                 return None
 
+            # Generate research synthesis
+            synthesis_key = self.generate_synthesis(collection_key, report_title, html_content)
+
             # Final summary
             print(f"\n{'='*80}")
             print(f"✅ Query Complete")
@@ -615,6 +747,8 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             print(f"Relevant: {stats['relevant']}")
             print(f"Processing time: {stats['time']}")
             print(f"Report: Stored as note in {self._get_subcollection_name()}")
+            if synthesis_key:
+                print(f"Synthesis: Created in {self._get_subcollection_name()}")
             print(f"{'='*80}\n")
 
             return note_key
