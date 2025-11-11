@@ -1042,7 +1042,7 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
             score_class = "high" if score >= 8 else ("medium" if score >= 6 else "")
 
             html_parts.append(
-                f'            <li><a href="#{anchor}">{item_title}</a>'
+                f'            <li><a href="#{anchor}">{item_title}</a>&nbsp;'
                 f'<span class="relevance-score {score_class}">{score}/10</span></li>\n'
             )
 
