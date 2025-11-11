@@ -111,6 +111,7 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         self.relevance_threshold = 6
         self.max_sources = 50
         self.use_sonnet = False
+        self.synthesis_enabled = True  # Default: enabled
 
         # LLM model configuration
         self.haiku_model = "claude-haiku-4-5-20251001"
@@ -199,6 +200,11 @@ max_sources=50
 use_sonnet=false
 haiku_model=claude-haiku-4-5
 sonnet_model=claude-sonnet-4-5
+
+# ============================================================
+# Research Synthesis
+# ============================================================
+generate_synthesis=true
 
 # ============================================================
 # Gemini File Search Configuration
@@ -716,6 +722,12 @@ gemini_uploaded_files={}
                 self.gemini_file_search_model = config['gemini_file_search_model']
             elif self.verbose:
                 print(f"  ⚠️  Invalid gemini_file_search_model: must start with 'gemini-'")
+
+        if 'generate_synthesis' in config:
+            if isinstance(config['generate_synthesis'], bool):
+                self.synthesis_enabled = config['generate_synthesis']
+            elif self.verbose:
+                print(f"  ⚠️  Invalid generate_synthesis: must be true/false, got {config['generate_synthesis']}")
 
     def get_note_from_subcollection(
         self,

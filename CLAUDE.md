@@ -10,6 +10,7 @@ The primary tool is **ZoteroResearcher** (`zresearcher.py`), a sophisticated res
 
 - **Phase 1 (Build)**: Generate project-aware summaries with metadata and tags for all sources
 - **Phase 2 (Query)**: Evaluate relevance against a research brief and generate targeted summaries
+- **Phase 3 (Synthesis)**: Automatically generate a meta-analysis synthesis of the research findings (optional, enabled by default)
 
 The tool supports a **Zotero-native workflow** where all configuration and outputs are stored in Zotero (recommended).
 
@@ -320,6 +321,21 @@ The ZoteroResearcher tool uses a **two-phase workflow** with **project-based org
 - Output professional HTML report
 - Smart storage: reports <1MB as notes, >1MB as files with stub notes
 
+**Phase 3 - Research Synthesis (automatic after Phase 2):**
+- Automatically triggered after creating research report (can be disabled in config)
+- Loads project overview and research brief from Zotero notes
+- Analyzes the full research report to create a meta-analysis synthesis
+- Uses Claude Sonnet (always, regardless of use_sonnet setting) for high-quality analysis
+- Generates comprehensive synthesis including:
+  - Executive Summary
+  - Main Themes and Patterns
+  - Key Findings (with source citations)
+  - Implications and Insights
+  - Recommendations
+  - Research Gaps and Future Directions
+- Saves as "Research Synthesis: {title}" note in project subcollection
+- Can be disabled by setting `generate_synthesis=false` in Project Config
+
 **Key Features:**
 - Project-based organization (multiple projects per collection)
 - Two-phase workflow: build once, query multiple times
@@ -336,6 +352,7 @@ The ZoteroResearcher tool uses a **two-phase workflow** with **project-based org
 - **Claude Haiku 4.5** for relevance evaluation (fast, cheap)
 - **Claude Haiku 4.5** for detailed targeted summaries by default (cost-efficient)
 - **Claude Sonnet 4.5** for detailed targeted summaries with Project Config override (production quality)
+- **Claude Sonnet 4.5** for research synthesis (always, high-quality meta-analysis)
 
 **Structured Note Format:**
 ```
@@ -398,6 +415,13 @@ Project: <project name>
 7. **Smart storage:**
    - If report <1MB: Create full note in project subcollection
    - If report >1MB: Save as HTML file + create stub note with file location
+
+*Phase 3 - Research Synthesis (automatic):*
+1. After research report is created (if `generate_synthesis=true` in config)
+2. Load project overview from Zotero notes
+3. Send report + project overview + research brief to Claude Sonnet
+4. Generate comprehensive meta-analysis synthesis
+5. Save as "Research Synthesis: {title}" note in project subcollection
 
 **Benefits of Two-Phase Approach:**
 - **Efficiency**: Build summaries once, query many times
@@ -531,6 +555,16 @@ The `ZoteroBaseProcessor` class provides shared functionality for all processors
 7. Process targeted summaries in parallel
 8. Generate HTML report with LLM-generated title
 9. Smart storage: Save as note if <1MB, otherwise save as file with stub note
+
+**Phase 3 - Research Synthesis (automatic after Phase 2):**
+1. Check if synthesis is enabled (`generate_synthesis=true` in config, default: enabled)
+2. Load project overview from Zotero notes
+3. Generate synthesis prompt with:
+   - Project overview
+   - Research brief
+   - Full research report HTML content (truncated to 400K chars if needed)
+4. Call Claude Sonnet with synthesis prompt (16K max tokens)
+5. Create "Research Synthesis: {title}" note in project subcollection
 
 ### Content Retrieval Priority (ZoteroResearcher)
 1. Existing "Markdown Extract" note (from legacy tools)
