@@ -783,8 +783,7 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
 ---
 """
 
-        report_content = f"""# {report_title}
-
+        report_content = f"""
 **Project:** {self.project_name}
 **Query Date:** {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
 **Files Searched:** {len(self.uploaded_files)}
