@@ -274,7 +274,11 @@ Provide ONLY the metadata in the format above, nothing else."""
 def research_synthesis_prompt(
     project_overview: str,
     research_brief: str,
-    research_report: str
+    research_report: str,
+    report_title: str = "Research Report",
+    num_sources: int = 0,
+    report_timestamp: str = None,
+    zotero_link: str = None
 ) -> str:
     """
     Prompt for generating a meta-analysis synthesis of research findings.
@@ -286,6 +290,10 @@ def research_synthesis_prompt(
         project_overview: Description of research project and goals
         research_brief: The original research question/brief
         research_report: The full research report HTML content
+        report_title: Title of the research report being synthesized
+        num_sources: Number of sources in the research report
+        report_timestamp: Timestamp when the research report was created
+        zotero_link: Optional Zotero internal link to the research report note
 
     Returns:
         Formatted prompt string
@@ -293,6 +301,18 @@ def research_synthesis_prompt(
     # Truncate report if too long (keep first 400K chars to leave room for context)
     report_for_prompt = research_report[:400000] if len(research_report) > 400000 else research_report
     truncation_note = "\n\n**NOTE: This research report has been truncated to fit within the context window. You are analyzing a partial view of the full report.**" if len(research_report) > 400000 else ""
+
+    # Build metadata section for the synthesis
+    metadata_lines = []
+    metadata_lines.append(f"**Report Title:** {report_title}")
+    if report_timestamp:
+        metadata_lines.append(f"**Report Created:** {report_timestamp}")
+    if num_sources > 0:
+        metadata_lines.append(f"**Number of Sources:** {num_sources}")
+    if zotero_link:
+        metadata_lines.append(f"**Zotero Link:** [{report_title}]({zotero_link})")
+
+    metadata_section = "\n".join(metadata_lines)
 
     return f"""You are a research synthesis specialist tasked with creating a meta-analysis of research findings. You have been provided with a detailed research report that contains summaries of multiple sources. Your goal is to synthesize these findings into a cohesive, high-level analysis that directly addresses the original research brief.
 
@@ -306,6 +326,17 @@ Research Report:{truncation_note}
 {report_for_prompt}
 
 Please create a comprehensive research synthesis that includes:
+
+**IMPORTANT:** Begin your synthesis with the following metadata section (copy this exactly at the very beginning of your response):
+
+---
+## Research Report Metadata
+
+{metadata_section}
+
+---
+
+After the metadata section, continue with the synthesis structure below:
 
 ## 1. Executive Summary
 Provide a concise 2-3 paragraph overview of the key findings and their significance to the research brief.
