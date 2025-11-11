@@ -160,7 +160,10 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
         self,
         collection_key: str,
         report_title: str,
-        report_content: str
+        report_content: str,
+        report_note_key: Optional[str] = None,
+        num_sources: int = 0,
+        report_timestamp: Optional[str] = None
     ) -> Optional[str]:
         """
         Generate a research synthesis from the research report.
@@ -172,6 +175,9 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
             collection_key: The Zotero collection key
             report_title: Title of the research report
             report_content: Full HTML content of the research report
+            report_note_key: Optional Zotero note key for internal link
+            num_sources: Number of sources in the research report
+            report_timestamp: Optional timestamp string for report creation
 
         Returns:
             Note key if synthesis created, None if generation fails or is disabled
@@ -200,10 +206,20 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
         print(f"  (This may take a minute for large reports)")
 
         try:
+            # Build Zotero link if report_note_key is provided
+            zotero_link = None
+            if report_note_key:
+                library_type = 'groups' if self.zot.library_type == 'group' else 'library'
+                zotero_link = f"zotero://select/{library_type}/{self.zot.library_id}/items/{report_note_key}"
+
             prompt = zr_prompts.research_synthesis_prompt(
                 project_overview=project_overview,
                 research_brief=self.research_brief,
-                research_report=report_content
+                research_report=report_content,
+                report_title=report_title,
+                num_sources=num_sources,
+                report_timestamp=report_timestamp,
+                zotero_link=zotero_link
             )
 
             # Use Sonnet (not Haiku) for high-quality synthesis
@@ -636,6 +652,9 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
             'time': f"{elapsed_time:.1f} seconds"
         }
 
+        # Generate timestamp for report creation
+        report_timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+
         # Generate title from research brief using LLM
         print(f"  Generating report title...")
         report_title = self.generate_report_title(self.research_brief)
@@ -698,7 +717,14 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
                 print(f"  ⚠️  Failed to create stub note")
 
             # Generate research synthesis
-            synthesis_key = self.generate_synthesis(collection_key, report_title, html_content)
+            synthesis_key = self.generate_synthesis(
+                collection_key,
+                report_title,
+                html_content,
+                report_note_key=None,  # No note key for file-based reports
+                num_sources=stats['relevant'],
+                report_timestamp=report_timestamp
+            )
 
             # Final summary
             print(f"\n{'='*80}")
@@ -735,7 +761,14 @@ Generated: {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
                 return None
 
             # Generate research synthesis
-            synthesis_key = self.generate_synthesis(collection_key, report_title, html_content)
+            synthesis_key = self.generate_synthesis(
+                collection_key,
+                report_title,
+                html_content,
+                report_note_key=note_key,  # Include Zotero link for note-based reports
+                num_sources=stats['relevant'],
+                report_timestamp=report_timestamp
+            )
 
             # Final summary
             print(f"\n{'='*80}")
