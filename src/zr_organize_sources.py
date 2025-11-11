@@ -46,6 +46,9 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
             if content_type == 'application/pdf' or self.is_pdf_attachment(attachment_item):
                 extracted_text = self.extract_text_from_pdf(raw_content)
+            elif (content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword']
+                  or self.is_docx_attachment(attachment_item)):
+                extracted_text = self.extract_text_from_docx(raw_content)
             elif content_type in ['text/html', 'application/xhtml+xml'] or self.is_html_attachment(attachment_item):
                 extracted_text = self.extract_text_from_html(raw_content)
             elif content_type == 'text/plain' or self.is_txt_attachment(attachment_item):
@@ -178,7 +181,7 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
     def has_acceptable_attachment(self, item_key: str) -> bool:
         """
-        Check if an item has at least one acceptable attachment (HTML, PDF, or TXT).
+        Check if an item has at least one acceptable attachment (HTML, PDF, DOCX, or TXT).
 
         Args:
             item_key: The key of the parent item
@@ -191,6 +194,7 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
         for attachment in attachments:
             if (self.is_html_attachment(attachment) or
                 self.is_pdf_attachment(attachment) or
+                self.is_docx_attachment(attachment) or
                 self.is_txt_attachment(attachment)):
                 return True
 

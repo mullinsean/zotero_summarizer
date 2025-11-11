@@ -334,6 +334,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                 # Check if compatible file type
                 if not (self.is_pdf_attachment(attachment) or
                        self.is_html_attachment(attachment) or
+                       self.is_docx_attachment(attachment) or
                        self.is_txt_attachment(attachment)):
                     continue
 
@@ -347,7 +348,7 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     print(f"  ❌ Failed to download attachment")
                     continue
 
-                # Determine file extension and handle HTML specially
+                # Determine file extension and handle HTML/DOCX specially
                 if self.is_pdf_attachment(attachment):
                     ext = 'pdf'
                     upload_content = content
@@ -366,6 +367,22 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
                     except Exception as extract_error:
                         print(f"  ⚠️  Failed to extract text from HTML: {extract_error}")
                         print(f"  ⏭️  Skipping this HTML file...")
+                        continue
+                elif self.is_docx_attachment(attachment):
+                    # Extract text from DOCX for consistency with build/query workflows
+                    print(f"  📝 Extracting text from DOCX file...")
+                    try:
+                        text_content = self.extract_text_from_docx(content)
+                        if not text_content or len(text_content.strip()) < 100:
+                            print(f"  ⚠️  DOCX extraction produced no usable text, skipping...")
+                            continue
+                        # Upload as plain text for consistency
+                        ext = 'txt'
+                        upload_content = text_content.encode('utf-8')
+                        print(f"  ✅ Extracted {len(text_content)} characters")
+                    except Exception as extract_error:
+                        print(f"  ⚠️  Failed to extract text from DOCX: {extract_error}")
+                        print(f"  ⏭️  Skipping this DOCX file...")
                         continue
                 elif self.is_txt_attachment(attachment):
                     ext = 'txt'

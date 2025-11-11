@@ -206,6 +206,25 @@ class ZoteroBaseProcessor:
         return (content_type == 'text/plain' or
                 filename.lower().endswith('.txt'))
 
+    def is_docx_attachment(self, attachment: Dict) -> bool:
+        """
+        Check if an attachment is a DOCX file.
+
+        Args:
+            attachment: The attachment item data
+
+        Returns:
+            True if the attachment is DOCX
+        """
+        content_type = attachment['data'].get('contentType', '')
+        filename = attachment['data'].get('filename', '')
+
+        # Support both modern .docx and legacy .doc formats
+        # Note: python-docx only supports .docx, not legacy .doc
+        return (content_type in ['application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                                 'application/msword'] or
+                filename.lower().endswith(('.docx', '.doc')))
+
     def download_attachment(self, attachment_key: str) -> Optional[bytes]:
         """
         Download an attachment file from Zotero.

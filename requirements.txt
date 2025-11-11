@@ -10,3 +10,4 @@ pypdf
 pymupdf
 markdown
 google-genai
+python-docx
