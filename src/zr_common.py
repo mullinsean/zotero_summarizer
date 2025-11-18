@@ -835,31 +835,42 @@ gemini_uploaded_files={}
             if self.verbose:
                 print(f"  📁 Filtering to subcollections: {', '.join(requested_names)}")
 
-        # Get all items from the main collection
-        all_items = self.get_collection_items(collection_key)
-
-        # Filter items based on collection membership
+        # Get items from target subcollections
         filtered_items = []
-        for item in all_items:
-            item_collections = item['data'].get('collections', [])
+        seen_keys = set()  # Track items to avoid duplicates
 
-            # Check if item belongs to any target subcollection
-            in_target_subcollection = any(
-                coll_key in target_subcollection_keys
-                for coll_key in item_collections
-            )
+        # Get items from each target subcollection
+        for subcoll_key in target_subcollection_keys:
+            try:
+                subcoll_items = self.zot.collection_items_top(subcoll_key)
+                for item in subcoll_items:
+                    item_key = item['key']
+                    if item_key not in seen_keys:
+                        filtered_items.append(item)
+                        seen_keys.add(item_key)
+            except Exception as e:
+                print(f"  ⚠️  Error fetching items from subcollection: {e}")
 
-            # Check if item belongs to main collection only (not in any subcollection)
-            in_main_only = collection_key in item_collections and not any(
-                coll_key in subcollection_map.values()
-                for coll_key in item_collections
-            )
+        # If include_main=True, also get items from main collection that are NOT in any subcollection
+        if include_main:
+            try:
+                main_items = self.get_collection_items(collection_key)
+                for item in main_items:
+                    item_key = item['key']
+                    item_collections = item['data'].get('collections', [])
 
-            # Include item if:
-            # 1. It's in a target subcollection, OR
-            # 2. include_main=True AND it's in the main collection only
-            if in_target_subcollection or (include_main and in_main_only):
-                filtered_items.append(item)
+                    # Check if item is in main collection only (not in any subcollection)
+                    in_any_subcollection = any(
+                        coll_key in subcollection_map.values()
+                        for coll_key in item_collections
+                    )
+
+                    # Add if not already seen and not in any subcollection
+                    if item_key not in seen_keys and not in_any_subcollection:
+                        filtered_items.append(item)
+                        seen_keys.add(item_key)
+            except Exception as e:
+                print(f"  ⚠️  Error fetching items from main collection: {e}")
 
         if self.verbose:
             print(f"  ✅ Found {len(filtered_items)} items after subcollection filtering")
