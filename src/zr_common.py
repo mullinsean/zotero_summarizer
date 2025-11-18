@@ -768,6 +768,115 @@ gemini_uploaded_files={}
 
         return None
 
+    def get_items_to_process(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> List[Dict]:
+        """
+        Get items to process with optional subcollection filtering.
+
+        Args:
+            collection_key: Main collection key
+            subcollections: Comma-separated subcollection names, "all", or None
+            include_main: Include items from main collection (only relevant when subcollections is set)
+
+        Returns:
+            List of filtered items to process
+
+        Raises:
+            ValueError: If specified subcollection names not found
+        """
+        # If no subcollection filtering, return all items from collection
+        if not subcollections:
+            return self.get_collection_items(collection_key)
+
+        # Get all subcollections of the parent collection
+        try:
+            all_subcollections = self.zot.collections_sub(collection_key)
+        except Exception as e:
+            print(f"  ❌ Error fetching subcollections: {e}")
+            return []
+
+        # Build map of subcollection names to keys
+        subcollection_map = {}
+        for subcoll in all_subcollections:
+            subcoll_name = subcoll['data']['name']
+            subcoll_key = subcoll['key']
+            subcollection_map[subcoll_name] = subcoll_key
+
+        # Exclude the ZResearcher project subcollection if it exists
+        if self.project_name:
+            zresearcher_subcoll_name = self._get_subcollection_name()
+            if zresearcher_subcoll_name in subcollection_map:
+                del subcollection_map[zresearcher_subcoll_name]
+
+        # Determine which subcollections to include
+        target_subcollection_keys = set()
+
+        if subcollections.lower() == "all":
+            # Include all subcollections (except ZResearcher project subcollection)
+            target_subcollection_keys = set(subcollection_map.values())
+            if self.verbose:
+                print(f"  📁 Filtering to all subcollections ({len(target_subcollection_keys)} total)")
+        else:
+            # Parse comma-separated list
+            requested_names = [name.strip() for name in subcollections.split(',')]
+            for name in requested_names:
+                if name not in subcollection_map:
+                    available = ', '.join(f'"{n}"' for n in sorted(subcollection_map.keys()))
+                    raise ValueError(
+                        f"Subcollection '{name}' not found. "
+                        f"Available subcollections: {available}"
+                    )
+                target_subcollection_keys.add(subcollection_map[name])
+
+            if self.verbose:
+                print(f"  📁 Filtering to subcollections: {', '.join(requested_names)}")
+
+        # Get items from target subcollections
+        filtered_items = []
+        seen_keys = set()  # Track items to avoid duplicates
+
+        # Get items from each target subcollection
+        for subcoll_key in target_subcollection_keys:
+            try:
+                subcoll_items = self.zot.collection_items_top(subcoll_key)
+                for item in subcoll_items:
+                    item_key = item['key']
+                    if item_key not in seen_keys:
+                        filtered_items.append(item)
+                        seen_keys.add(item_key)
+            except Exception as e:
+                print(f"  ⚠️  Error fetching items from subcollection: {e}")
+
+        # If include_main=True, also get items from main collection that are NOT in any subcollection
+        if include_main:
+            try:
+                main_items = self.get_collection_items(collection_key)
+                for item in main_items:
+                    item_key = item['key']
+                    item_collections = item['data'].get('collections', [])
+
+                    # Check if item is in main collection only (not in any subcollection)
+                    in_any_subcollection = any(
+                        coll_key in subcollection_map.values()
+                        for coll_key in item_collections
+                    )
+
+                    # Add if not already seen and not in any subcollection
+                    if item_key not in seen_keys and not in_any_subcollection:
+                        filtered_items.append(item)
+                        seen_keys.add(item_key)
+            except Exception as e:
+                print(f"  ⚠️  Error fetching items from main collection: {e}")
+
+        if self.verbose:
+            print(f"  ✅ Found {len(filtered_items)} items after subcollection filtering")
+
+        return filtered_items
+
     def load_note_from_subcollection(
         self,
         collection_key: str,
