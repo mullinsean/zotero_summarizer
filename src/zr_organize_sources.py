@@ -425,7 +425,12 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
                 except Exception:
                     pass  # Ignore cleanup errors
 
-    def organize_sources(self, collection_key: str) -> Dict[str, int]:
+    def organize_sources(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> Dict[str, int]:
         """
         Organize sources in a collection to ensure all items have acceptable attachments.
 
@@ -436,6 +441,8 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
 
         Args:
             collection_key: The Zotero collection key
+            subcollections: Optional filter to specific subcollections (comma-separated names or "all")
+            include_main: Include items from main collection when using subcollection filtering
 
         Returns:
             Statistics dictionary with counts of actions taken
@@ -456,8 +463,8 @@ class ZoteroResearcherOrganizer(ZoteroResearcherBase):
         print(f"{'='*80}\n")
         print(f"Processing items...\n")
 
-        # Get all items in collection
-        items = self.get_collection_items(collection_key)
+        # Get items to process (with optional subcollection filtering)
+        items = self.get_items_to_process(collection_key, subcollections, include_main)
 
         if not items:
             print("No items found in collection")

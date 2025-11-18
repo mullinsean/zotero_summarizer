@@ -108,6 +108,52 @@ uv run python -m src.zresearcher --file-search \
 - LLM-generated report titles based on query request (format: "File Search Report: {title}")
 - Store name and upload state tracked in Project Config note
 
+**ZoteroResearcher - Subcollection Filtering**
+
+All workflows support optional subcollection filtering to process only items in specific subcollections:
+
+```bash
+# Process only items in specific subcollections (comma-separated names)
+uv run python -m src.zresearcher --organize-sources \
+    --collection COLLECTION_KEY --subcollections "Research Papers,Reports"
+
+uv run python -m src.zresearcher --build-summaries \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections "Research Papers,Reports"
+
+uv run python -m src.zresearcher --query-summary \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections "Research Papers"
+
+# Process all subcollections (excludes main collection items)
+uv run python -m src.zresearcher --build-summaries \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections all
+
+# Include main collection items along with subcollections
+uv run python -m src.zresearcher --build-summaries \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections "Research Papers" --include-main
+
+# File Search with subcollection filtering
+uv run python -m src.zresearcher --upload-files \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections "Research Papers,Reports"
+
+uv run python -m src.zresearcher --file-search \
+    --collection COLLECTION_KEY --project "My Project" \
+    --subcollections "Research Papers,Reports"
+```
+
+**Subcollection Filtering Behavior:**
+- **No flags**: Process all items in the main collection (default behavior)
+- **`--subcollections "Name1,Name2"`**: Process only items in specified subcollections
+- **`--subcollections all`**: Process items in all subcollections (excluding the ZResearcher project subcollection)
+- **`--include-main`**: Also include items from the main collection when using `--subcollections`
+- The ZResearcher project subcollection (e.g., `【ZResearcher: My Project】`) is always excluded from filtering
+- Subcollection names are case-sensitive and must match exactly
+- Error is shown if a specified subcollection name doesn't exist, with a list of available subcollections
+
 **ZoteroResearcher - Cleanup**
 ```bash
 # Preview cleanup for a specific project (dry-run mode - no changes made)

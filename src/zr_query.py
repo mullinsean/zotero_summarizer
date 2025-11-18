@@ -339,7 +339,12 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
         """
         return sorted(sources_with_scores, key=lambda x: x['score'], reverse=True)
 
-    def run_query_summary(self, collection_key: str) -> Optional[str]:
+    def run_query_summary(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> Optional[str]:
         """
         Phase 2: Query sources based on research brief from Zotero notes.
 
@@ -348,6 +353,8 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
 
         Args:
             collection_key: The Zotero collection key to analyze
+            subcollections: Optional filter to specific subcollections (comma-separated names or "all")
+            include_main: Include items from main collection when using subcollection filtering
 
         Returns:
             Note key if report stored as note, or file path if stored as HTML file
@@ -394,8 +401,8 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
         print(f"Summary Model: {self.summary_model} ({'Sonnet - High Quality' if self.use_sonnet else 'Haiku - Cost Efficient'})")
         print(f"{'='*80}\n")
 
-        # Get collection items
-        items = self.get_collection_items(collection_key)
+        # Get items to process (with optional subcollection filtering)
+        items = self.get_items_to_process(collection_key, subcollections, include_main)
         if not items:
             print("❌ No items found in collection")
             return None

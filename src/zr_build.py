@@ -136,7 +136,12 @@ Project: {self.project_name}
 """
         return note_content
 
-    def build_general_summaries(self, collection_key: str) -> None:
+    def build_general_summaries(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> None:
         """
         Phase 1: Build general summaries for all sources in a collection.
 
@@ -144,6 +149,8 @@ Project: {self.project_name}
 
         Args:
             collection_key: The Zotero collection key to process
+            subcollections: Optional filter to specific subcollections (comma-separated names or "all")
+            include_main: Include items from main collection when using subcollection filtering
         """
         start_time = time.time()
 
@@ -185,8 +192,8 @@ Project: {self.project_name}
         print(f"Tags: {len(self.tags)} available")
         print(f"{'='*80}\n")
 
-        # Get collection items
-        items = self.get_collection_items(collection_key)
+        # Get items to process (with optional subcollection filtering)
+        items = self.get_items_to_process(collection_key, subcollections, include_main)
         if not items:
             print("❌ No items found in collection")
             return

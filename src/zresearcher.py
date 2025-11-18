@@ -162,6 +162,18 @@ Examples:
         help='[Build] Force rebuild of existing summaries'
     )
 
+    # Subcollection filtering arguments
+    parser.add_argument(
+        '--subcollections',
+        type=str,
+        help='Filter to specific subcollections (comma-separated names, or "all" for all subcollections). Example: --subcollections "Research Papers,Reports"'
+    )
+    parser.add_argument(
+        '--include-main',
+        action='store_true',
+        help='Include items from main collection when using --subcollections (by default only subcollection items are processed)'
+    )
+
     # Cleanup arguments
     parser.add_argument(
         '--dry-run',
@@ -308,7 +320,11 @@ Examples:
             force_rebuild=False,
             verbose=args.verbose
         )
-        stats = organizer.organize_sources(collection_key)
+        stats = organizer.organize_sources(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
         return
 
     # Handle --build-summaries mode
@@ -322,7 +338,11 @@ Examples:
             force_rebuild=args.force,
             verbose=args.verbose
         )
-        researcher.build_general_summaries(collection_key)
+        researcher.build_general_summaries(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
         return
 
     # Handle --query-summary mode
@@ -336,7 +356,11 @@ Examples:
             force_rebuild=False,  # Not used in query mode
             verbose=args.verbose
         )
-        result = researcher.run_query_summary(collection_key)
+        result = researcher.run_query_summary(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
 
         if result:
             if result.endswith('.html'):
@@ -359,7 +383,11 @@ Examples:
         )
 
         # Upload files to Gemini file search store
-        result = searcher.upload_files_to_gemini(collection_key)
+        result = searcher.upload_files_to_gemini(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
         if result:
             print(f"✅ File upload completed successfully")
         else:
@@ -380,7 +408,11 @@ Examples:
         )
 
         # Run file search (requires files to be uploaded first)
-        result = searcher.run_file_search(collection_key)
+        result = searcher.run_file_search(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
         if result:
             print(f"✅ File search query completed successfully")
         else:

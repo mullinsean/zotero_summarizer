@@ -198,12 +198,19 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
             preserve_formatting=True
         )
 
-    def upload_files_to_gemini(self, collection_key: str) -> bool:
+    def upload_files_to_gemini(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> bool:
         """
         Upload all compatible sources from collection to Google Gemini File Search Store.
 
         Args:
             collection_key: Collection key to process
+            subcollections: Optional filter to specific subcollections (comma-separated names or "all")
+            include_main: Include items from main collection when using subcollection filtering
 
         Returns:
             True if upload successful
@@ -265,10 +272,10 @@ class ZoteroFileSearcher(ZoteroResearcherBase):
         else:
             print(f"ℹ️  Using existing file search store: {self.file_search_store_name}\n")
 
-        # Get collection items
+        # Get items to process (with optional subcollection filtering)
         print(f"Loading collection items...")
-        items = self.get_collection_items(collection_key)
-        print(f"Found {len(items)} items in collection")
+        items = self.get_items_to_process(collection_key, subcollections, include_main)
+        print(f"Found {len(items)} items to process")
 
         # Count already uploaded vs new items
         already_uploaded_count = 0
@@ -589,13 +596,20 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
                 fallback = fallback[:97] + "..."
             return fallback
 
-    def run_file_search(self, collection_key: str) -> Optional[str]:
+    def run_file_search(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> Optional[str]:
         """
         Run Gemini File Search query and save results as File Search Report.
         Requires files to be uploaded first (use --upload-files).
 
         Args:
             collection_key: Collection key to process
+            subcollections: Optional filter to specific subcollections (comma-separated names or "all")
+            include_main: Include items from main collection when using subcollection filtering
 
         Returns:
             Report note key if successful, None otherwise
@@ -640,7 +654,7 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
             return None
 
         # Check for new files that haven't been uploaded yet
-        items = self.get_collection_items(collection_key)
+        items = self.get_items_to_process(collection_key, subcollections, include_main)
         new_files_count = 0
         for item in items:
             item_key = item['key']
