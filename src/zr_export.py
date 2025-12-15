@@ -279,7 +279,7 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         print(f"📁 Output directory: {output_path.absolute()}\n")
 
         # Get items from collection (with optional subcollection filtering)
-        items = self.get_collection_items(
+        items = self.get_items_to_process(
             collection_key,
             subcollections=subcollections,
             include_main=include_main
