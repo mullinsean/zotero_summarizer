@@ -94,7 +94,8 @@ class ZoteroPDFAnalyzer:
         """
         print(f"Fetching items from collection {collection_key}...")
         try:
-            items = self.zot.collection_items(collection_key)
+            # Use everything() to handle pagination and fetch all items (no 100-item limit)
+            items = self.zot.everything(self.zot.collection_items(collection_key))
             print(f"Found {len(items)} items in collection")
             return items
         except Exception as e:
