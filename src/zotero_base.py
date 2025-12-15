@@ -84,7 +84,8 @@ class ZoteroBaseProcessor:
         print(f"Fetching top-level items from collection {collection_key}...")
         try:
             # Use collection_items_top to only get parent items, not child attachments/notes
-            items = self.zot.collection_items_top(collection_key)
+            # Use everything() to handle pagination and fetch all items (no 100-item limit)
+            items = self.zot.everything(self.zot.collection_items_top(collection_key))
             print(f"Found {len(items)} top-level items in collection")
             return items
         except Exception as e:
@@ -508,7 +509,8 @@ class ZoteroBaseProcessor:
             List of note items
         """
         try:
-            items = self.zot.collection_items(collection_key)
+            # Use everything() to handle pagination and fetch all items (no 100-item limit)
+            items = self.zot.everything(self.zot.collection_items(collection_key))
             notes = [item for item in items if item['data']['itemType'] == 'note']
             return notes
         except Exception as e:

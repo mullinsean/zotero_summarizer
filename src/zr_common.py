@@ -842,7 +842,8 @@ gemini_uploaded_files={}
         # Get items from each target subcollection
         for subcoll_key in target_subcollection_keys:
             try:
-                subcoll_items = self.zot.collection_items_top(subcoll_key)
+                # Use everything() to handle pagination and fetch all items (no 100-item limit)
+                subcoll_items = self.zot.everything(self.zot.collection_items_top(subcoll_key))
                 for item in subcoll_items:
                     item_key = item['key']
                     if item_key not in seen_keys:
