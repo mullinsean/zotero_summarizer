@@ -22,6 +22,7 @@ try:
     from .zr_organize_sources import ZoteroResearcherOrganizer
     from .zr_file_search import ZoteroFileSearcher
     from .zr_cleanup import ZoteroResearcherCleaner
+    from .zr_export import ZoteroNotebookLMExporter
 except ImportError:
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
@@ -30,6 +31,7 @@ except ImportError:
     from zr_organize_sources import ZoteroResearcherOrganizer
     from zr_file_search import ZoteroFileSearcher
     from zr_cleanup import ZoteroResearcherCleaner
+    from zr_export import ZoteroNotebookLMExporter
 
 
 def main():
@@ -80,6 +82,9 @@ Examples:
   # Cleanup: Remove ALL projects from a collection (use with caution!)
   python zresearcher.py --cleanup-collection --collection KEY --dry-run
   python zresearcher.py --cleanup-collection --collection KEY --yes
+
+  # Export: Export collection to NotebookLM format (PDFs, TXT, HTML→Markdown)
+  python zresearcher.py --export-to-notebooklm --collection KEY --output-dir ./notebooklm_export
         """
     )
 
@@ -135,6 +140,11 @@ Examples:
         action='store_true',
         help='Clean up ALL projects in a collection: delete all ZResearcher data (use with caution!)'
     )
+    mode_group.add_argument(
+        '--export-to-notebooklm',
+        action='store_true',
+        help='Export collection to NotebookLM format: extract PDFs, TXT files, and convert HTML to Markdown'
+    )
 
     # Common arguments
     parser.add_argument(
@@ -184,6 +194,14 @@ Examples:
         '--yes',
         action='store_true',
         help='[Cleanup] Skip confirmation prompt (useful for scripts)'
+    )
+
+    # Export arguments
+    parser.add_argument(
+        '--output-dir',
+        type=str,
+        default='./notebooklm_export',
+        help='[Export] Output directory for exported files (default: ./notebooklm_export)'
     )
 
     args = parser.parse_args()
@@ -451,6 +469,23 @@ Examples:
             collection_key,
             dry_run=args.dry_run,
             skip_confirm=args.yes
+        )
+        return
+
+    # Handle --export-to-notebooklm mode
+    if args.export_to_notebooklm:
+        exporter = ZoteroNotebookLMExporter(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in export, but required by base class
+            verbose=args.verbose
+        )
+        stats = exporter.export_to_notebooklm(
+            collection_key,
+            output_dir=args.output_dir,
+            subcollections=args.subcollections,
+            include_main=args.include_main
         )
         return
 

@@ -181,6 +181,44 @@ uv run python -m src.zresearcher --cleanup-project \
     --collection COLLECTION_KEY --project "My Research Project" --verbose
 ```
 
+**ZoteroResearcher - Export to NotebookLM**
+
+Export collection to NotebookLM format by extracting PDFs, text files, and converting HTML to Markdown:
+
+```bash
+# Export entire collection to NotebookLM format
+uv run python -m src.zresearcher --export-to-notebooklm \
+    --collection COLLECTION_KEY --output-dir ./notebooklm_export
+
+# Export with custom output directory
+uv run python -m src.zresearcher --export-to-notebooklm \
+    --collection COLLECTION_KEY --output-dir ~/Documents/NotebookLM
+
+# Export only specific subcollections
+uv run python -m src.zresearcher --export-to-notebooklm \
+    --collection COLLECTION_KEY --subcollections "Research Papers,Reports" \
+    --output-dir ./notebooklm_export
+
+# Verbose mode for detailed logging
+uv run python -m src.zresearcher --export-to-notebooklm \
+    --collection COLLECTION_KEY --verbose
+```
+
+**Export Behavior:**
+- **PDFs**: Copied as-is to output directory
+- **Text files (.txt)**: Copied as-is to output directory
+- **HTML snapshots**: Converted to Markdown using Trafilatura and saved as .md files
+- Filenames are sanitized and made unique using item titles and attachment keys
+- Supports subcollection filtering (same as other workflows)
+- No project name required (standalone operation)
+- Default output directory: `./notebooklm_export`
+
+**Use Cases:**
+- Prepare sources for NotebookLM analysis without summarization
+- Quick export of all source documents in NotebookLM-compatible format
+- Export specific subcollections for focused analysis
+- Backup source documents in a portable format
+
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
@@ -217,6 +255,7 @@ src/
 ├── zr_query.py (~990 lines)            # Phase 2: Query & report generation workflow
 ├── zr_file_search.py (~450 lines)      # File Search: Gemini RAG integration
 ├── zr_cleanup.py (~530 lines)          # Cleanup: Delete projects & summary notes
+├── zr_export.py (~380 lines)           # Export: NotebookLM format export
 ├── zr_llm_client.py                    # Centralized LLM API client
 ├── zr_prompts.py                       # Prompt templates
 └── zotero_base.py                      # Base Zotero API functionality
@@ -317,6 +356,22 @@ src/
   - Reports detailed summary of deleted items and errors
   - Deletes child summary notes attached to items (created by --build-summaries)
   - Deletes Gemini file search stores (deletes all files in store)
+
+**`zr_export.py`** - Export Workflow (NotebookLM Format)
+- `ZoteroNotebookLMExporter` class (inherits from `ZoteroResearcherBase`)
+  - `export_to_notebooklm()` - Main export orchestration with progress tracking
+  - `_sanitize_filename()` - Clean filenames for filesystem safety
+  - `_get_export_filename()` - Generate unique filenames using item titles and keys
+  - `_export_pdf_attachment()` - Copy PDF files to output directory
+  - `_export_txt_attachment()` - Copy text files to output directory
+  - `_export_html_attachment()` - Convert HTML to Markdown and save as .md files
+  - Supports subcollection filtering (same as other workflows)
+  - No project name required (standalone operation)
+  - Exports to configurable output directory (default: `./notebooklm_export`)
+  - HTML conversion uses Trafilatura for clean Markdown output
+  - Filenames include item title and attachment key for uniqueness
+  - Tracks exported files to avoid duplicates
+  - Provides detailed export statistics (PDFs, TXT, HTML→Markdown counts)
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
