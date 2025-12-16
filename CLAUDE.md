@@ -221,10 +221,10 @@ uv run python -m src.zresearcher --export-to-notebooklm \
 
 **ZoteroResearcher - Export Summaries to Markdown**
 
-Export all ZResearcher summary notes for a project to a single consolidated markdown file:
+Export all ZResearcher summary notes for a project as either a single consolidated file or separate files:
 
 ```bash
-# Export all summary notes for a project (default output file: ./zresearcher_summaries_{project}.md)
+# Export all summary notes to single consolidated file (default: ./zresearcher_summaries_{project}.md)
 uv run python -m src.zresearcher --export-summaries \
     --collection COLLECTION_KEY --project "My Research Project"
 
@@ -232,6 +232,16 @@ uv run python -m src.zresearcher --export-summaries \
 uv run python -m src.zresearcher --export-summaries \
     --collection COLLECTION_KEY --project "My Research Project" \
     --output-file ./my_summaries.md
+
+# Export as separate .md files in a directory (default: ./zresearcher_summaries_{project}/)
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --separate-files
+
+# Export as separate files with custom directory path
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --separate-files --output-file ./summaries_directory
 
 # Export only summaries from specific subcollections
 uv run python -m src.zresearcher --export-summaries \
@@ -246,17 +256,21 @@ uv run python -m src.zresearcher --export-summaries \
 **Export Behavior:**
 - Finds all items in the collection with "【ZResearcher Summary: PROJECT】" notes (created by --build-summaries)
 - Extracts the content from each summary note (Metadata, Tags, Summary sections)
-- Appends all summaries into a single markdown file with headers for each item
+- **Consolidated mode (default)**: Appends all summaries into a single markdown file with headers for each item
+- **Separate files mode (--separate-files)**: Creates individual .md files for each summary in a directory
+  - Filenames: `001_Item_Title.md`, `002_Item_Title.md`, etc.
+  - Files are numbered and include sanitized item titles
 - Supports subcollection filtering (same as other workflows)
 - Requires project name to identify which summaries to export
-- Default output file: `./zresearcher_summaries_{project}.md`
+- Default output:
+  - Consolidated: `./zresearcher_summaries_{project}.md`
+  - Separate files: `./zresearcher_summaries_{project}/`
 
 **Use Cases:**
-- Create a consolidated reference document of all source summaries
-- Share summaries with collaborators in a portable format
-- Archive project summaries outside of Zotero
+- **Consolidated file**: Create a single reference document, share with collaborators, archive summaries
+- **Separate files**: Individual review/editing, version control friendly, focused analysis per source
 - Create input for further analysis or LLM processing
-- Generate a single document for reading or printing
+- Generate documents for reading or printing
 
 **Diagnostic Utility**
 ```bash
@@ -413,14 +427,14 @@ src/
     - Tracks exported files to avoid duplicates
     - Provides detailed export statistics (PDFs, TXT, HTML→Markdown counts)
   - **Summary Export:**
-    - `export_summaries_to_markdown()` - Export all ZResearcher summary notes to single markdown file
+    - `export_summaries_to_markdown()` - Export all ZResearcher summary notes (consolidated or separate files)
     - Finds all items with "【ZResearcher Summary: PROJECT】" notes (child notes)
     - Extracts text content from each summary note
-    - Appends all summaries with item title headers and separators
-    - Creates consolidated markdown file with project header
+    - **Consolidated mode**: Appends all summaries with headers into single file
+    - **Separate files mode**: Creates individual .md files (numbered, sanitized filenames)
     - Supports subcollection filtering (same as other workflows)
     - Requires project name to identify which summaries to export
-    - Default output file: `./zresearcher_summaries_{project}.md`
+    - Default output: `./zresearcher_summaries_{project}.md` or `./zresearcher_summaries_{project}/`
     - Provides detailed export statistics (exported, skipped counts)
 
 ### Legacy Modules (Deprecated - see `/old/`)

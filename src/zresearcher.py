@@ -86,9 +86,11 @@ Examples:
   # Export: Export collection to NotebookLM format (PDFs, TXT, HTML→Markdown)
   python zresearcher.py --export-to-notebooklm --collection KEY --output-dir ./notebooklm_export
 
-  # Export: Export all ZResearcher summary notes to a single markdown file
+  # Export: Export all ZResearcher summary notes (consolidated file or separate files)
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity"
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --output-file ./my_summaries.md
+  python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files
+  python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files --output-file ./summaries_dir
         """
     )
 
@@ -215,7 +217,12 @@ Examples:
     parser.add_argument(
         '--output-file',
         type=str,
-        help='[Export] Output file path for exported summaries markdown file (default: ./zresearcher_summaries_{project}.md)'
+        help='[Export Summaries] Output file path (consolidated) or directory path (separate files). Default: ./zresearcher_summaries_{project}.md or ./zresearcher_summaries_{project}/'
+    )
+    parser.add_argument(
+        '--separate-files',
+        action='store_true',
+        help='[Export Summaries] Export each summary as a separate .md file instead of one consolidated file'
     )
 
     args = parser.parse_args()
@@ -506,13 +513,18 @@ Examples:
 
     # Handle --export-summaries mode
     if args.export_summaries:
-        # Determine output file path
+        # Determine output path (file or directory depending on mode)
         if args.output_file:
-            output_file = args.output_file
+            output_path = args.output_file
         else:
-            # Default: use project name in filename
+            # Default: use project name in filename/dirname
             safe_project_name = project_name.replace(' ', '_').replace('/', '_')
-            output_file = f"./zresearcher_summaries_{safe_project_name}.md"
+            if args.separate_files:
+                # Separate files mode: default to directory
+                output_path = f"./zresearcher_summaries_{safe_project_name}"
+            else:
+                # Consolidated mode: default to single file
+                output_path = f"./zresearcher_summaries_{safe_project_name}.md"
 
         exporter = ZoteroNotebookLMExporter(
             library_id,
@@ -524,9 +536,10 @@ Examples:
         stats = exporter.export_summaries_to_markdown(
             collection_key,
             project_name=project_name,
-            output_file=output_file,
+            output_path=output_path,
             subcollections=args.subcollections,
-            include_main=args.include_main
+            include_main=args.include_main,
+            separate_files=args.separate_files
         )
         return
 

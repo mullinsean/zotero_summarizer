@@ -254,19 +254,21 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         self,
         collection_key: str,
         project_name: str,
-        output_file: str,
+        output_path: str,
         subcollections: Optional[List[str]] = None,
-        include_main: bool = False
+        include_main: bool = False,
+        separate_files: bool = False
     ) -> Dict[str, int]:
         """
-        Export all ZResearcher summary notes to a single markdown file.
+        Export all ZResearcher summary notes to markdown file(s).
 
         Args:
             collection_key: Zotero collection key
             project_name: Name of the project to export summaries for
-            output_file: Path to output markdown file
+            output_path: Path to output markdown file (consolidated) or directory (separate files)
             subcollections: Optional list of subcollection names to filter
             include_main: If True, include main collection items when filtering subcollections
+            separate_files: If True, export each summary as a separate file in output_path directory
 
         Returns:
             Dict with export statistics (exported, skipped counts)
@@ -275,7 +277,12 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         print(f"EXPORTING ZRESEARCHER SUMMARIES TO MARKDOWN")
         print(f"{'='*80}\n")
         print(f"Project: {project_name}")
-        print(f"Output file: {output_file}\n")
+        if separate_files:
+            print(f"Mode: Separate files")
+            print(f"Output directory: {output_path}\n")
+        else:
+            print(f"Mode: Single consolidated file")
+            print(f"Output file: {output_path}\n")
 
         # Get items from collection (with optional subcollection filtering)
         items = self.get_items_to_process(
@@ -296,8 +303,8 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         # Build the expected summary note prefix for this project
         summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
 
-        # Collect all summaries
-        all_summaries = []
+        # Collect all summaries with item titles
+        all_summaries = []  # List of tuples: (item_title, summary_text)
 
         # Process each item
         for idx, item in enumerate(items, 1):
@@ -332,7 +339,8 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
                             summary_entry += note_text
                             summary_entry += "\n\n" + "="*80 + "\n\n"
 
-                            all_summaries.append(summary_entry)
+                            # Store tuple of (item_title, summary_text)
+                            all_summaries.append((item_title, summary_entry))
                             stats['exported'] += 1
                             summary_found = True
                             print(f"  ✓ Found summary note")
@@ -349,26 +357,53 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
                     traceback.print_exc()
                 stats['skipped'] += 1
 
-        # Write all summaries to file
+        # Write all summaries to file(s)
         if all_summaries:
-            print(f"\n📝 Writing {len(all_summaries)} summaries to file...")
+            if separate_files:
+                # Separate files mode: create directory and write individual files
+                print(f"\n📝 Writing {len(all_summaries)} summaries as separate files...")
 
-            # Create output directory if needed
-            output_path = Path(output_file)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+                # Create output directory
+                output_dir = Path(output_path)
+                output_dir.mkdir(parents=True, exist_ok=True)
 
-            # Write the combined markdown file
-            with open(output_file, 'w', encoding='utf-8') as f:
-                # Write a header
-                f.write(f"# ZResearcher Summaries: {project_name}\n\n")
-                f.write(f"Total summaries: {len(all_summaries)}\n\n")
-                f.write("="*80 + "\n\n")
+                # Write each summary to a separate file
+                for idx, (item_title, summary_text) in enumerate(all_summaries, 1):
+                    # Sanitize filename
+                    safe_title = self._sanitize_filename(item_title)
+                    filename = f"{idx:03d}_{safe_title}.md"
+                    filepath = output_dir / filename
 
-                # Write all summaries
-                for summary in all_summaries:
-                    f.write(summary)
+                    # Write individual file
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        # The summary_text already has the title header and content
+                        f.write(summary_text)
 
-            print(f"✅ Successfully wrote summaries to: {output_file}")
+                    if self.verbose:
+                        print(f"  ✓ Wrote {filename}")
+
+                print(f"✅ Successfully wrote {len(all_summaries)} summaries to: {output_dir}")
+
+            else:
+                # Consolidated mode: write single file
+                print(f"\n📝 Writing {len(all_summaries)} summaries to consolidated file...")
+
+                # Create output directory if needed
+                output_file_path = Path(output_path)
+                output_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Write the combined markdown file
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    # Write a header
+                    f.write(f"# ZResearcher Summaries: {project_name}\n\n")
+                    f.write(f"Total summaries: {len(all_summaries)}\n\n")
+                    f.write("="*80 + "\n\n")
+
+                    # Write all summaries
+                    for item_title, summary_text in all_summaries:
+                        f.write(summary_text)
+
+                print(f"✅ Successfully wrote summaries to: {output_path}")
         else:
             print(f"⚠️  No summaries found for project '{project_name}'")
 
@@ -380,7 +415,10 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         print(f"  • Summaries exported: {stats['exported']}")
         print(f"  • Items skipped (no summary): {stats['skipped']}")
         if all_summaries:
-            print(f"\n📁 File saved to: {output_file}")
+            if separate_files:
+                print(f"\n📁 Files saved to: {output_path}/")
+            else:
+                print(f"\n📁 File saved to: {output_path}")
 
         return stats
 
