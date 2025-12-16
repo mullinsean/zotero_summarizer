@@ -85,6 +85,10 @@ Examples:
 
   # Export: Export collection to NotebookLM format (PDFs, TXT, HTML→Markdown)
   python zresearcher.py --export-to-notebooklm --collection KEY --output-dir ./notebooklm_export
+
+  # Export: Export all ZResearcher summary notes to a single markdown file
+  python zresearcher.py --export-summaries --collection KEY --project "AI Productivity"
+  python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --output-file ./my_summaries.md
         """
     )
 
@@ -145,6 +149,11 @@ Examples:
         action='store_true',
         help='Export collection to NotebookLM format: extract PDFs, TXT files, and convert HTML to Markdown'
     )
+    mode_group.add_argument(
+        '--export-summaries',
+        action='store_true',
+        help='Export all ZResearcher summary notes for a project to a single markdown file'
+    )
 
     # Common arguments
     parser.add_argument(
@@ -203,6 +212,11 @@ Examples:
         default='./notebooklm_export',
         help='[Export] Output directory for exported files (default: ./notebooklm_export)'
     )
+    parser.add_argument(
+        '--output-file',
+        type=str,
+        help='[Export] Output file path for exported summaries markdown file (default: ./zresearcher_summaries_{project}.md)'
+    )
 
     args = parser.parse_args()
 
@@ -248,7 +262,8 @@ Examples:
         args.query_summary,
         args.upload_files,
         args.file_search,
-        args.cleanup_project
+        args.cleanup_project,
+        args.export_summaries
     ]
     if any(operations_requiring_project) and not args.project:
         print("Error: --project is required for this operation")
@@ -484,6 +499,32 @@ Examples:
         stats = exporter.export_to_notebooklm(
             collection_key,
             output_dir=args.output_dir,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
+        return
+
+    # Handle --export-summaries mode
+    if args.export_summaries:
+        # Determine output file path
+        if args.output_file:
+            output_file = args.output_file
+        else:
+            # Default: use project name in filename
+            safe_project_name = project_name.replace(' ', '_').replace('/', '_')
+            output_file = f"./zresearcher_summaries_{safe_project_name}.md"
+
+        exporter = ZoteroNotebookLMExporter(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in export, but required by base class
+            verbose=args.verbose
+        )
+        stats = exporter.export_summaries_to_markdown(
+            collection_key,
+            project_name=project_name,
+            output_file=output_file,
             subcollections=args.subcollections,
             include_main=args.include_main
         )

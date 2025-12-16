@@ -219,6 +219,45 @@ uv run python -m src.zresearcher --export-to-notebooklm \
 - Export specific subcollections for focused analysis
 - Backup source documents in a portable format
 
+**ZoteroResearcher - Export Summaries to Markdown**
+
+Export all ZResearcher summary notes for a project to a single consolidated markdown file:
+
+```bash
+# Export all summary notes for a project (default output file: ./zresearcher_summaries_{project}.md)
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Export with custom output file path
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --output-file ./my_summaries.md
+
+# Export only summaries from specific subcollections
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --subcollections "Research Papers,Reports"
+
+# Verbose mode for detailed logging
+uv run python -m src.zresearcher --export-summaries \
+    --collection COLLECTION_KEY --project "My Research Project" --verbose
+```
+
+**Export Behavior:**
+- Finds all items in the collection with "【ZResearcher Summary: PROJECT】" notes (created by --build-summaries)
+- Extracts the content from each summary note (Metadata, Tags, Summary sections)
+- Appends all summaries into a single markdown file with headers for each item
+- Supports subcollection filtering (same as other workflows)
+- Requires project name to identify which summaries to export
+- Default output file: `./zresearcher_summaries_{project}.md`
+
+**Use Cases:**
+- Create a consolidated reference document of all source summaries
+- Share summaries with collaborators in a portable format
+- Archive project summaries outside of Zotero
+- Create input for further analysis or LLM processing
+- Generate a single document for reading or printing
+
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
@@ -247,7 +286,7 @@ No test framework currently configured. Tests should be added in `/tests/` direc
 **File Structure:**
 ```
 src/
-├── zresearcher.py (~380 lines)         # CLI entry point & routing
+├── zresearcher.py (~530 lines)         # CLI entry point & routing
 ├── zr_common.py (~760 lines)           # Base class & shared utilities
 ├── zr_init.py (~290 lines)             # Collection initialization workflow
 ├── zr_organize_sources.py (~350 lines) # Source organization workflow
@@ -255,7 +294,7 @@ src/
 ├── zr_query.py (~990 lines)            # Phase 2: Query & report generation workflow
 ├── zr_file_search.py (~450 lines)      # File Search: Gemini RAG integration
 ├── zr_cleanup.py (~530 lines)          # Cleanup: Delete projects & summary notes
-├── zr_export.py (~380 lines)           # Export: NotebookLM format export
+├── zr_export.py (~520 lines)           # Export: NotebookLM format & summary export
 ├── zr_llm_client.py                    # Centralized LLM API client
 ├── zr_prompts.py                       # Prompt templates
 └── zotero_base.py                      # Base Zotero API functionality
@@ -357,21 +396,32 @@ src/
   - Deletes child summary notes attached to items (created by --build-summaries)
   - Deletes Gemini file search stores (deletes all files in store)
 
-**`zr_export.py`** - Export Workflow (NotebookLM Format)
+**`zr_export.py`** - Export Workflow (NotebookLM Format & Summaries)
 - `ZoteroNotebookLMExporter` class (inherits from `ZoteroResearcherBase`)
-  - `export_to_notebooklm()` - Main export orchestration with progress tracking
-  - `_sanitize_filename()` - Clean filenames for filesystem safety
-  - `_get_export_filename()` - Generate unique filenames using item titles and keys
-  - `_export_pdf_attachment()` - Copy PDF files to output directory
-  - `_export_txt_attachment()` - Copy text files to output directory
-  - `_export_html_attachment()` - Convert HTML to Markdown and save as .md files
-  - Supports subcollection filtering (same as other workflows)
-  - No project name required (standalone operation)
-  - Exports to configurable output directory (default: `./notebooklm_export`)
-  - HTML conversion uses Trafilatura for clean Markdown output
-  - Filenames include item title and attachment key for uniqueness
-  - Tracks exported files to avoid duplicates
-  - Provides detailed export statistics (PDFs, TXT, HTML→Markdown counts)
+  - **NotebookLM Export:**
+    - `export_to_notebooklm()` - Main export orchestration with progress tracking
+    - `_sanitize_filename()` - Clean filenames for filesystem safety
+    - `_get_export_filename()` - Generate unique filenames using item titles and keys
+    - `_export_pdf_attachment()` - Copy PDF files to output directory
+    - `_export_txt_attachment()` - Copy text files to output directory
+    - `_export_html_attachment()` - Convert HTML to Markdown and save as .md files
+    - Supports subcollection filtering (same as other workflows)
+    - No project name required (standalone operation)
+    - Exports to configurable output directory (default: `./notebooklm_export`)
+    - HTML conversion uses Trafilatura for clean Markdown output
+    - Filenames include item title and attachment key for uniqueness
+    - Tracks exported files to avoid duplicates
+    - Provides detailed export statistics (PDFs, TXT, HTML→Markdown counts)
+  - **Summary Export:**
+    - `export_summaries_to_markdown()` - Export all ZResearcher summary notes to single markdown file
+    - Finds all items with "【ZResearcher Summary: PROJECT】" notes (child notes)
+    - Extracts text content from each summary note
+    - Appends all summaries with item title headers and separators
+    - Creates consolidated markdown file with project header
+    - Supports subcollection filtering (same as other workflows)
+    - Requires project name to identify which summaries to export
+    - Default output file: `./zresearcher_summaries_{project}.md`
+    - Provides detailed export statistics (exported, skipped counts)
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
