@@ -250,6 +250,140 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
                 traceback.print_exc()
             return None
 
+    def export_summaries_to_markdown(
+        self,
+        collection_key: str,
+        project_name: str,
+        output_file: str,
+        subcollections: Optional[List[str]] = None,
+        include_main: bool = False
+    ) -> Dict[str, int]:
+        """
+        Export all ZResearcher summary notes to a single markdown file.
+
+        Args:
+            collection_key: Zotero collection key
+            project_name: Name of the project to export summaries for
+            output_file: Path to output markdown file
+            subcollections: Optional list of subcollection names to filter
+            include_main: If True, include main collection items when filtering subcollections
+
+        Returns:
+            Dict with export statistics (exported, skipped counts)
+        """
+        print(f"\n{'='*80}")
+        print(f"EXPORTING ZRESEARCHER SUMMARIES TO MARKDOWN")
+        print(f"{'='*80}\n")
+        print(f"Project: {project_name}")
+        print(f"Output file: {output_file}\n")
+
+        # Get items from collection (with optional subcollection filtering)
+        items = self.get_items_to_process(
+            collection_key,
+            subcollections=subcollections,
+            include_main=include_main
+        )
+
+        if not items:
+            print("⚠️  No items found in collection")
+            return {'exported': 0, 'skipped': 0}
+
+        print(f"Found {len(items)} items to process\n")
+
+        # Statistics
+        stats = {'exported': 0, 'skipped': 0}
+
+        # Build the expected summary note prefix for this project
+        summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
+
+        # Collect all summaries
+        all_summaries = []
+
+        # Process each item
+        for idx, item in enumerate(items, 1):
+            item_data = item['data']
+            item_title = item_data.get('title', 'Untitled')
+            item_key = item['key']
+
+            # Skip notes and attachments (we only want parent items)
+            item_type = item_data.get('itemType')
+            if item_type in ['note', 'attachment']:
+                continue
+
+            print(f"[{idx}/{len(items)}] {item_title[:60]}")
+
+            # Get child items (notes and attachments)
+            try:
+                children = self.zot.children(item_key)
+                summary_found = False
+
+                for child in children:
+                    child_data = child['data']
+                    if child_data.get('itemType') == 'note':
+                        note_html = child_data.get('note', '')
+                        # Check if this is the summary note for our project
+                        note_title = self.get_note_title_from_html(note_html)
+                        if summary_note_prefix in note_title:
+                            # Extract the text content (markdown format)
+                            note_text = self.extract_text_from_note_html(note_html)
+
+                            # Add to our collection with a header
+                            summary_entry = f"# {item_title}\n\n"
+                            summary_entry += note_text
+                            summary_entry += "\n\n" + "="*80 + "\n\n"
+
+                            all_summaries.append(summary_entry)
+                            stats['exported'] += 1
+                            summary_found = True
+                            print(f"  ✓ Found summary note")
+                            break
+
+                if not summary_found:
+                    print(f"  ⚠️  No summary note found")
+                    stats['skipped'] += 1
+
+            except Exception as e:
+                print(f"  ⚠️  Error processing item: {e}")
+                if self.verbose:
+                    import traceback
+                    traceback.print_exc()
+                stats['skipped'] += 1
+
+        # Write all summaries to file
+        if all_summaries:
+            print(f"\n📝 Writing {len(all_summaries)} summaries to file...")
+
+            # Create output directory if needed
+            output_path = Path(output_file)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Write the combined markdown file
+            with open(output_file, 'w', encoding='utf-8') as f:
+                # Write a header
+                f.write(f"# ZResearcher Summaries: {project_name}\n\n")
+                f.write(f"Total summaries: {len(all_summaries)}\n\n")
+                f.write("="*80 + "\n\n")
+
+                # Write all summaries
+                for summary in all_summaries:
+                    f.write(summary)
+
+            print(f"✅ Successfully wrote summaries to: {output_file}")
+        else:
+            print(f"⚠️  No summaries found for project '{project_name}'")
+
+        # Print summary
+        print(f"\n{'='*80}")
+        print(f"EXPORT COMPLETE")
+        print(f"{'='*80}")
+        print(f"📊 Summary:")
+        print(f"  • Summaries exported: {stats['exported']}")
+        print(f"  • Items skipped (no summary): {stats['skipped']}")
+        if all_summaries:
+            print(f"\n📁 File saved to: {output_file}")
+
+        return stats
+
     def export_to_notebooklm(
         self,
         collection_key: str,
