@@ -633,6 +633,19 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             True if successful
         """
         try:
+            # Check if attachment already exists in cache
+            cursor.execute("""
+                SELECT local_path, file_hash FROM attachments
+                WHERE attachment_key = ? AND local_path IS NOT NULL
+            """, (attachment_key,))
+
+            existing = cursor.fetchone()
+            if existing and Path(existing['local_path']).exists():
+                if self.verbose:
+                    filename = Path(existing['local_path']).name
+                    print(f"    ↻ Already cached: {filename}")
+                return True  # Already downloaded and file exists
+
             # Get storage directory for item
             item_dir = self._get_item_storage_dir(item_key)
 
