@@ -490,20 +490,32 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                             child_type = child['data']['itemType']
 
                             if child_type == 'attachment':
-                                # Store attachment metadata
+                                # Store attachment metadata (INSERT OR IGNORE to preserve local_path)
                                 cursor.execute("""
-                                    INSERT OR REPLACE INTO attachments (
+                                    INSERT OR IGNORE INTO attachments (
                                         attachment_key, parent_item_key, filename,
                                         content_type, local_path, version, last_synced
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                                    ) VALUES (?, ?, ?, ?, NULL, ?, ?)
                                 """, (
                                     child_key,
                                     item_key,
                                     child['data'].get('filename', ''),
                                     child['data'].get('contentType', ''),
-                                    None,  # Will be set when downloaded
                                     child['version'],
                                     datetime.now().isoformat()
+                                ))
+
+                                # Update metadata if already exists (preserve local_path if set)
+                                cursor.execute("""
+                                    UPDATE attachments
+                                    SET filename = ?, content_type = ?, version = ?, last_synced = ?
+                                    WHERE attachment_key = ?
+                                """, (
+                                    child['data'].get('filename', ''),
+                                    child['data'].get('contentType', ''),
+                                    child['version'],
+                                    datetime.now().isoformat(),
+                                    child_key
                                 ))
 
                                 # Download attachment file
