@@ -266,21 +266,24 @@ gemini_uploaded_files={}
 
         return metadata
 
-    def extract_text_from_html(self, html_content: bytes, attachment_url: Optional[str] = None) -> Optional[str]:
+    def extract_text_from_html(self, html_content, attachment_url: Optional[str] = None) -> Optional[str]:
         """
         Extract text from HTML content using Trafilatura.
         Reused from summarize_sources.py.
 
         Args:
-            html_content: HTML content as bytes
+            html_content: HTML content as bytes or str
             attachment_url: Optional URL to fetch from if bytes fail
 
         Returns:
             Extracted text, or None if extraction fails
         """
         try:
-            # Try to decode bytes to string
-            html_string = html_content.decode('utf-8', errors='ignore')
+            # Convert to string if bytes
+            if isinstance(html_content, bytes):
+                html_string = html_content.decode('utf-8', errors='ignore')
+            else:
+                html_string = html_content
 
             # Use Trafilatura for extraction
             markdown = trafilatura.extract(
