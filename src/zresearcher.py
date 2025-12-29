@@ -23,6 +23,7 @@ try:
     from .zr_file_search import ZoteroFileSearcher
     from .zr_cleanup import ZoteroResearcherCleaner
     from .zr_export import ZoteroNotebookLMExporter
+    from .zr_cache import ZoteroCacheManager
 except ImportError:
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
@@ -32,6 +33,7 @@ except ImportError:
     from zr_file_search import ZoteroFileSearcher
     from zr_cleanup import ZoteroResearcherCleaner
     from zr_export import ZoteroNotebookLMExporter
+    from zr_cache import ZoteroCacheManager
 
 
 def main():
@@ -89,6 +91,11 @@ Examples:
   # Export: Export all ZResearcher summary notes to a single markdown file
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity"
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --output-file ./my_summaries.md
+
+  # Cache: Initialize and sync local cache for offline/fast access
+  python zresearcher.py --init-cache --collection KEY
+  python zresearcher.py --sync-cache --collection KEY
+  python zresearcher.py --cache-info --collection KEY
         """
     )
 
@@ -154,6 +161,21 @@ Examples:
         action='store_true',
         help='Export all ZResearcher summary notes for a project to a single markdown file'
     )
+    mode_group.add_argument(
+        '--init-cache',
+        action='store_true',
+        help='Initialize local cache for a collection (creates cache database and storage)'
+    )
+    mode_group.add_argument(
+        '--sync-cache',
+        action='store_true',
+        help='Sync collection data to local cache (incremental or full sync)'
+    )
+    mode_group.add_argument(
+        '--cache-info',
+        action='store_true',
+        help='Display cache statistics for a collection'
+    )
 
     # Common arguments
     parser.add_argument(
@@ -218,6 +240,18 @@ Examples:
         help='[Export] Output file path for exported summaries markdown file (default: ./zresearcher_summaries_{project}.md)'
     )
 
+    # Cache arguments
+    parser.add_argument(
+        '--cache-dir',
+        type=str,
+        help='[Cache] Directory for cache storage (default: .zotero_cache)'
+    )
+    parser.add_argument(
+        '--include-subcollections',
+        action='store_true',
+        help='[Cache] Include subcollections in cache sync (default: True for --sync-cache)'
+    )
+
     args = parser.parse_args()
 
     # Get configuration from environment
@@ -245,7 +279,10 @@ Examples:
         print("Please set ZOTERO_LIBRARY_ID and ZOTERO_API_KEY in your .env file")
         return
 
-    if not anthropic_api_key and not args.file_search:
+    # Cache operations don't require ANTHROPIC_API_KEY
+    cache_operations = [args.init_cache, args.sync_cache, args.cache_info]
+
+    if not anthropic_api_key and not args.file_search and not any(cache_operations):
         print("Error: Missing required ANTHROPIC_API_KEY")
         print("Please set ANTHROPIC_API_KEY in your .env file")
         return
@@ -528,6 +565,81 @@ Examples:
             subcollections=args.subcollections,
             include_main=args.include_main
         )
+        return
+
+    # Handle --init-cache mode
+    if args.init_cache:
+        cache_manager = ZoteroCacheManager(
+            library_id,
+            library_type,
+            zotero_api_key,
+            cache_dir=args.cache_dir,
+            verbose=args.verbose
+        )
+        result = cache_manager.init_cache(collection_key)
+        if result:
+            print(f"\n✅ Cache initialized successfully")
+            print(f"Cache location: {cache_manager.cache_dir}")
+        else:
+            print(f"\n❌ Cache initialization failed")
+        return
+
+    # Handle --sync-cache mode
+    if args.sync_cache:
+        cache_manager = ZoteroCacheManager(
+            library_id,
+            library_type,
+            zotero_api_key,
+            cache_dir=args.cache_dir,
+            verbose=args.verbose
+        )
+
+        # Default to including subcollections unless explicitly disabled
+        include_subcollections = args.include_subcollections if hasattr(args, 'include_subcollections') else True
+
+        stats = cache_manager.sync_collection(
+            collection_key,
+            include_subcollections=include_subcollections,
+            force_full=args.force
+        )
+
+        if stats['errors'] == 0:
+            print(f"\n✅ Cache sync completed successfully")
+        else:
+            print(f"\n⚠️  Cache sync completed with {stats['errors']} error(s)")
+        return
+
+    # Handle --cache-info mode
+    if args.cache_info:
+        cache_manager = ZoteroCacheManager(
+            library_id,
+            library_type,
+            zotero_api_key,
+            cache_dir=args.cache_dir,
+            verbose=args.verbose
+        )
+
+        info = cache_manager.get_cache_info(collection_key)
+
+        if 'error' in info:
+            print(f"\n❌ Error: {info['error']}")
+            print("\nHint: Run --init-cache first to initialize the cache")
+        else:
+            print(f"\n{'='*60}")
+            print(f"Cache Information")
+            print(f"{'='*60}")
+            print(f"Collection: {info['collection_name']}")
+            print(f"Collection Key: {info['collection_key']}")
+            print(f"Last Sync: {info['last_sync_time'] or 'Never'}")
+            print(f"Sync Version: {info['last_sync_version']}")
+            print(f"Full Sync Completed: {'Yes' if info['full_sync_completed'] else 'No'}")
+            print(f"\nCached Items: {info['item_count']}")
+            print(f"Attachments: {info['attachment_count']}")
+            print(f"Extracted Content: {info['extracted_count']}")
+            print(f"Notes: {info['note_count']}")
+            print(f"\nStorage Size: {info['storage_size_mb']} MB")
+            print(f"Cache Directory: {info['cache_dir']}")
+            print(f"{'='*60}\n")
         return
 
 
