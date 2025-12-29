@@ -167,11 +167,23 @@ uv run python -m src.zresearcher --sync-cache --collection COLLECTION_KEY --verb
 - **No API rate limits** for batch processing
 - **Offline operation** when internet unavailable
 
-**Future Plans (Phase 2+):**
-- `--use-cache` flag to use cache in existing workflows
-- Incremental sync based on Zotero version tracking
+**Phase 1 Status: ✅ COMPLETE**
+- ✅ SQLite database schema with 8 tables
+- ✅ Filesystem storage for attachment files
+- ✅ Incremental sync with version tracking (skips cached files)
+- ✅ Parallel content extraction (HTML/PDF/TXT)
+- ✅ Full subcollection support
+- ✅ Cache statistics and info commands
+- ✅ Comprehensive error handling and progress tracking
+- ✅ All ZResearcher notes cached (summaries, config, briefs)
+
+**Phase 2 Plans:**
+- `--use-cache` flag to use cache in existing workflows (build-summaries, query-summary)
+- Project-specific note filtering from cache
+- Cache cleanup and maintenance commands (prune old versions, clear cache)
 - Vector database integration for RAG capabilities
-- Cache cleanup and management commands
+- Cache statistics and analytics (storage usage, hit rates)
+- Cache warming strategies for large collections
 
 **ZoteroResearcher - Subcollection Filtering**
 
@@ -489,15 +501,15 @@ src/
     - Default output file: `./zresearcher_summaries_{project}.md`
     - Provides detailed export statistics (exported, skipped counts)
 
-**`zr_cache.py`** - Local Cache Manager (Phase 1 - Basic Cache)
+**`zr_cache.py`** - Local Cache Manager ✅ COMPLETE
 - `ZoteroCacheManager` class (inherits from `ZoteroResearcherBase`)
   - **Cache Initialization:**
     - `init_cache()` - Initialize cache for a collection (create database and sync state)
     - `_init_database()` - Create SQLite schema with tables and indexes
     - `_load_config()` / `_save_config()` - Manage cache configuration
   - **Sync Operations:**
-    - `sync_collection()` - Full or incremental sync of collection data
-    - `_download_attachment_to_cache()` - Download attachment files to local storage
+    - `sync_collection()` - Full and incremental sync with version tracking
+    - `_download_attachment_to_cache()` - Download attachment files (skips cached files)
     - `_extract_content_to_cache()` - Extract text from HTML/PDF/TXT and cache
   - **Query Operations:**
     - `get_cache_info()` - Get cache statistics (items, attachments, storage size)
@@ -512,16 +524,19 @@ src/
     - `items` - Item metadata (title, authors, date, type, URL, JSON data)
     - `collection_items` - Many-to-many collection memberships
     - `attachments` - Attachment metadata and local file paths
-    - `notes` - Standalone and child notes
+    - `notes` - Standalone and child notes (includes ZResearcher summaries)
     - `extracted_content` - Cached extracted text from attachments
     - `sync_state` - Last sync version and timestamp per collection
+    - `schema_version` - Database schema version tracking
   - **Features:**
-    - Version tracking for incremental sync (future: Phase 2)
-    - File hash verification for integrity
-    - Parallel content extraction during sync
-    - Supports subcollection hierarchy
-    - Offline operation with cached data
-    - SQLite indexes for fast queries
+    - ✅ Full incremental sync with version tracking (skips unchanged items)
+    - ✅ Smart attachment caching (skips re-downloading cached files)
+    - ✅ File hash verification for integrity
+    - ✅ Parallel content extraction during sync
+    - ✅ Full subcollection hierarchy support
+    - ✅ Offline operation with cached data
+    - ✅ SQLite indexes for fast queries
+    - ✅ Comprehensive error handling and progress tracking
   - **Storage Structure:**
     ```
     .zotero_cache/
@@ -533,11 +548,11 @@ src/
     │   └── ...
     └── config.json           # Cache configuration
     ```
-  - **Current Limitations (Phase 1):**
-    - No integration with existing workflows (--use-cache not yet implemented)
-    - Incremental sync not fully implemented (always does full sync)
-    - No cache cleanup commands (manual directory deletion required)
-    - No vector database integration yet
+  - **Next Steps (Phase 2):**
+    - Integrate cache with existing workflows (--use-cache flag)
+    - Project-specific note filtering
+    - Cache cleanup and maintenance commands
+    - Vector database integration for RAG
 
 ### Legacy Modules (Deprecated - see `/old/`)
 
