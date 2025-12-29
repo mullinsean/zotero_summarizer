@@ -269,15 +269,27 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             collection_data = self.zot.collection(collection_key)
 
             # Insert collection (set parent_key to NULL for now - will be set during sync)
-            # This avoids foreign key constraint failures when parent doesn't exist yet
+            # Use INSERT OR IGNORE to avoid CASCADE DELETE of sync_state
             cursor.execute("""
-                INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
+                INSERT OR IGNORE INTO collections (collection_key, name, parent_key, version, last_synced)
                 VALUES (?, ?, NULL, ?, ?)
             """, (
                 collection_key,
                 collection_data['data']['name'],
                 collection_data['version'],
                 datetime.now().isoformat()
+            ))
+
+            # Update if already exists
+            cursor.execute("""
+                UPDATE collections
+                SET name = ?, version = ?, last_synced = ?
+                WHERE collection_key = ?
+            """, (
+                collection_data['data']['name'],
+                collection_data['version'],
+                datetime.now().isoformat(),
+                collection_key
             ))
 
             # Initialize sync state
@@ -391,16 +403,29 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                     collections_to_sync.append((subcol['key'], subcol))
                     collection_keys.append(subcol['key'])
 
-            # Pass 1: Insert all collections with NULL parent_key
+            # Pass 1: Insert all collections with NULL parent_key (avoid CASCADE DELETE issues)
             for col_key, col_data in collections_to_sync:
+                # Use INSERT OR IGNORE to avoid deleting existing row (which would CASCADE DELETE sync_state)
                 cursor.execute("""
-                    INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
+                    INSERT OR IGNORE INTO collections (collection_key, name, parent_key, version, last_synced)
                     VALUES (?, ?, NULL, ?, ?)
                 """, (
                     col_key,
                     col_data['data']['name'],
                     col_data['version'],
                     datetime.now().isoformat()
+                ))
+
+                # Update existing row if it already exists
+                cursor.execute("""
+                    UPDATE collections
+                    SET name = ?, version = ?, last_synced = ?
+                    WHERE collection_key = ?
+                """, (
+                    col_data['data']['name'],
+                    col_data['version'],
+                    datetime.now().isoformat(),
+                    col_key
                 ))
                 stats['collections_synced'] += 1
 
