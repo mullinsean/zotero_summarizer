@@ -399,22 +399,31 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             collection_keys = [collection_key]
             if include_subcollections:
                 subcollections = self.zot.collections_sub(collection_key)
+                if subcollections:
+                    print(f"→ Found {len(subcollections)} subcollection(s) to sync")
+                    if self.verbose:
+                        for subcol in subcollections:
+                            print(f"  • {subcol['key']}: {subcol['data']['name']}")
                 for subcol in subcollections:
                     collections_to_sync.append((subcol['key'], subcol))
                     collection_keys.append(subcol['key'])
 
             # Pass 1: Insert all collections with NULL parent_key (avoid CASCADE DELETE issues)
             for col_key, col_data in collections_to_sync:
+                col_name = col_data['data']['name']
+
                 # Use INSERT OR IGNORE to avoid deleting existing row (which would CASCADE DELETE sync_state)
                 cursor.execute("""
                     INSERT OR IGNORE INTO collections (collection_key, name, parent_key, version, last_synced)
                     VALUES (?, ?, NULL, ?, ?)
                 """, (
                     col_key,
-                    col_data['data']['name'],
+                    col_name,
                     col_data['version'],
                     datetime.now().isoformat()
                 ))
+
+                inserted = cursor.rowcount > 0
 
                 # Update existing row if it already exists
                 cursor.execute("""
@@ -422,11 +431,16 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                     SET name = ?, version = ?, last_synced = ?
                     WHERE collection_key = ?
                 """, (
-                    col_data['data']['name'],
+                    col_name,
                     col_data['version'],
                     datetime.now().isoformat(),
                     col_key
                 ))
+
+                if self.verbose:
+                    action = "Inserted" if inserted else "Updated"
+                    print(f"  {action} collection: {col_name} ({col_key})")
+
                 stats['collections_synced'] += 1
 
             # Pass 2: Update parent_key values
