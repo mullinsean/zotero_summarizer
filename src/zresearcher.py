@@ -61,7 +61,7 @@ def check_cache_exists(collection_key: str, cache_dir: str = None) -> bool:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT last_synced FROM sync_state
+            SELECT last_sync_time FROM sync_state
             WHERE collection_key = ?
         """, (collection_key,))
         result = cursor.fetchone()

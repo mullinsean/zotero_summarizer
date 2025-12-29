@@ -24,7 +24,7 @@ def check_cache_exists(collection_key: str, cache_dir: str = None) -> bool:
         cursor = conn.cursor()
 
         # Check all collections in sync_state
-        cursor.execute("SELECT collection_key, last_synced FROM sync_state")
+        cursor.execute("SELECT collection_key, last_sync_time FROM sync_state")
         all_syncs = cursor.fetchall()
         print(f"\nAll synced collections in database:")
         for row in all_syncs:
@@ -32,7 +32,7 @@ def check_cache_exists(collection_key: str, cache_dir: str = None) -> bool:
 
         # Check for specific collection
         cursor.execute("""
-            SELECT last_synced FROM sync_state
+            SELECT last_sync_time FROM sync_state
             WHERE collection_key = ?
         """, (collection_key,))
         result = cursor.fetchone()
