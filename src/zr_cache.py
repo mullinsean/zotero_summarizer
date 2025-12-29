@@ -459,9 +459,9 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                         if item_type in ['note', 'attachment']:
                             continue
 
-                        # Store item metadata
+                        # Store item metadata (INSERT OR IGNORE to avoid CASCADE DELETE on attachments)
                         cursor.execute("""
-                            INSERT OR REPLACE INTO items (
+                            INSERT OR IGNORE INTO items (
                                 item_key, item_type, title, date, url, metadata, version, last_synced
                             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
@@ -473,6 +473,22 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                             json.dumps(item['data']),
                             item['version'],
                             datetime.now().isoformat()
+                        ))
+
+                        # Update metadata if already exists
+                        cursor.execute("""
+                            UPDATE items
+                            SET item_type = ?, title = ?, date = ?, url = ?, metadata = ?, version = ?, last_synced = ?
+                            WHERE item_key = ?
+                        """, (
+                            item_type,
+                            item['data'].get('title', ''),
+                            item['data'].get('date', ''),
+                            item['data'].get('url', ''),
+                            json.dumps(item['data']),
+                            item['version'],
+                            datetime.now().isoformat(),
+                            item_key
                         ))
 
                         # Add to collection_items
