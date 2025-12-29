@@ -579,32 +579,51 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 # Commit after each collection to save progress and release locks
                 conn.commit()
 
-            # Sync standalone notes in collection
-            standalone_notes = self.zot.everything(self.zot.collection_items(collection_key, itemType='note'))
-            for note in standalone_notes:
+            # Sync standalone notes from all collections (main + subcollections)
+            for col_key in collection_keys:
                 try:
-                    note_key = note['key']
-                    note_html = note['data'].get('note', '')
-                    note_title = self.get_note_title_from_html(note_html)
+                    standalone_notes = self.zot.everything(self.zot.collection_items(col_key, itemType='note'))
+                    if standalone_notes:
+                        print(f"  → Syncing {len(standalone_notes)} standalone notes from collection {col_key}...")
 
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO notes (
-                            note_key, parent_item_key, collection_key, title,
-                            content_html, version, last_synced
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        note_key,
-                        None,
-                        collection_key,
-                        note_title,
-                        note_html,
-                        note['version'],
-                        datetime.now().isoformat()
-                    ))
-                    stats['notes_synced'] += 1
+                    for note in standalone_notes:
+                        try:
+                            note_key = note['key']
+                            note_html = note['data'].get('note', '')
+                            note_title = self.get_note_title_from_html(note_html)
+
+                            cursor.execute("""
+                                INSERT OR REPLACE INTO notes (
+                                    note_key, parent_item_key, collection_key, title,
+                                    content_html, version, last_synced
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """, (
+                                note_key,
+                                None,
+                                col_key,
+                                note_title,
+                                note_html,
+                                note['version'],
+                                datetime.now().isoformat()
+                            ))
+
+                            # Add to collection_items mapping
+                            cursor.execute("""
+                                INSERT OR IGNORE INTO collection_items (collection_key, item_key)
+                                VALUES (?, ?)
+                            """, (col_key, note_key))
+
+                            stats['notes_synced'] += 1
+
+                        except Exception as e:
+                            print(f"  ✗ Error syncing note {note.get('key', 'unknown')}: {e}")
+                            stats['errors'] += 1
 
                 except Exception as e:
-                    print(f"✗ Error syncing note {note.get('key', 'unknown')}: {e}")
+                    print(f"  ✗ Error getting notes from collection {col_key}: {e}")
+                    if self.verbose:
+                        import traceback
+                        traceback.print_exc()
                     stats['errors'] += 1
 
             # Update sync state
