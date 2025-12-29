@@ -887,6 +887,41 @@ gemini_uploaded_files={}
         # Otherwise use API
         return super().get_note_with_prefix(item_key, prefix)
 
+    def get_subcollection(self, parent_collection_key: str, subcollection_name: str) -> Optional[str]:
+        """
+        Get a subcollection key by name within a parent collection.
+        Cache-aware version that delegates to cache when available.
+
+        Args:
+            parent_collection_key: Key of parent collection
+            subcollection_name: Name of subcollection to find
+
+        Returns:
+            Subcollection key or None if not found
+        """
+        # Use cache if available
+        if self.use_cache and self.cache_manager:
+            try:
+                conn = self.cache_manager.get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT collection_key FROM collections
+                    WHERE parent_key = ? AND name = ?
+                """, (parent_collection_key, subcollection_name))
+                result = cursor.fetchone()
+                conn.close()
+
+                if result:
+                    return result['collection_key']
+                return None
+            except Exception as e:
+                if self.verbose:
+                    print(f"  ⚠️  Cache error, falling back to API: {e}")
+                # Fall through to API
+
+        # Otherwise use API
+        return super().get_subcollection(parent_collection_key, subcollection_name)
+
     def get_items_to_process(
         self,
         collection_key: str,
