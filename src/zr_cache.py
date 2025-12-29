@@ -268,14 +268,14 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             # Get collection info from API
             collection_data = self.zot.collection(collection_key)
 
-            # Insert collection
+            # Insert collection (set parent_key to NULL for now - will be set during sync)
+            # This avoids foreign key constraint failures when parent doesn't exist yet
             cursor.execute("""
                 INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, NULL, ?, ?)
             """, (
                 collection_key,
                 collection_data['data']['name'],
-                collection_data['data'].get('parentCollection'),
                 collection_data['version'],
                 datetime.now().isoformat()
             ))
