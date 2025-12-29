@@ -329,7 +329,7 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             conn = self.get_connection()
             cursor = conn.cursor()
 
-            # Get sync state
+            # Get sync state (create if doesn't exist due to CASCADE DELETE)
             cursor.execute("""
                 SELECT last_sync_version, full_sync_completed
                 FROM sync_state
@@ -338,9 +338,31 @@ class ZoteroCacheManager(ZoteroResearcherBase):
 
             sync_state = cursor.fetchone()
             if not sync_state:
-                print("✗ Collection not initialized. Run --init-cache first.")
-                conn.close()
-                return stats
+                # Check if collection exists in collections table
+                cursor.execute("""
+                    SELECT collection_key FROM collections WHERE collection_key = ?
+                """, (collection_key,))
+
+                if not cursor.fetchone():
+                    print("✗ Collection not initialized. Run --init-cache first.")
+                    conn.close()
+                    return stats
+
+                # Collection exists but sync_state was deleted (CASCADE DELETE issue)
+                # Recreate sync_state entry
+                cursor.execute("""
+                    INSERT INTO sync_state (collection_key, last_sync_version, last_sync_time, full_sync_completed)
+                    VALUES (?, 0, NULL, FALSE)
+                """, (collection_key,))
+                conn.commit()
+
+                # Re-fetch sync state
+                cursor.execute("""
+                    SELECT last_sync_version, full_sync_completed
+                    FROM sync_state
+                    WHERE collection_key = ?
+                """, (collection_key,))
+                sync_state = cursor.fetchone()
 
             last_version = sync_state['last_sync_version']
             full_sync_done = sync_state['full_sync_completed']
