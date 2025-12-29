@@ -354,38 +354,43 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 since_version = last_version
 
             # Sync collection metadata
+            # Two-pass approach to avoid foreign key constraint failures:
+            # Pass 1: Insert all collections without parent relationships
+            # Pass 2: Update parent relationships after all collections exist
+
             collection_data = self.zot.collection(collection_key)
-            cursor.execute("""
-                INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                collection_key,
-                collection_data['data']['name'],
-                collection_data['data'].get('parentCollection'),
-                collection_data['version'],
-                datetime.now().isoformat()
-            ))
-            stats['collections_synced'] += 1
+            collections_to_sync = [(collection_key, collection_data)]
 
             # Get subcollections if requested
             collection_keys = [collection_key]
             if include_subcollections:
                 subcollections = self.zot.collections_sub(collection_key)
                 for subcol in subcollections:
-                    subcol_key = subcol['key']
-                    cursor.execute("""
-                        INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        subcol_key,
-                        subcol['data']['name'],
-                        subcol['data'].get('parentCollection'),
-                        subcol['version'],
-                        datetime.now().isoformat()
-                    ))
-                    collection_keys.append(subcol_key)
-                    stats['collections_synced'] += 1
+                    collections_to_sync.append((subcol['key'], subcol))
+                    collection_keys.append(subcol['key'])
 
+            # Pass 1: Insert all collections with NULL parent_key
+            for col_key, col_data in collections_to_sync:
+                cursor.execute("""
+                    INSERT OR REPLACE INTO collections (collection_key, name, parent_key, version, last_synced)
+                    VALUES (?, ?, NULL, ?, ?)
+                """, (
+                    col_key,
+                    col_data['data']['name'],
+                    col_data['version'],
+                    datetime.now().isoformat()
+                ))
+                stats['collections_synced'] += 1
+
+            # Pass 2: Update parent_key values
+            for col_key, col_data in collections_to_sync:
+                parent_key = col_data['data'].get('parentCollection')
+                if parent_key:
+                    cursor.execute("""
+                        UPDATE collections SET parent_key = ? WHERE collection_key = ?
+                    """, (parent_key, col_key))
+
+            conn.commit()
             print(f"✓ Synced {stats['collections_synced']} collection(s)")
 
             # Sync items for each collection
