@@ -991,3 +991,180 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             if self.verbose:
                 print(f"✗ Error getting cached content: {e}")
             return None
+
+    def get_cached_attachments(self, item_key: str) -> List[Dict[str, Any]]:
+        """
+        Get all attachments for an item from cache
+
+        Args:
+            item_key: Parent item key
+
+        Returns:
+            List of attachment dictionaries with metadata
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT * FROM attachments WHERE parent_key = ?
+            """, (item_key,))
+
+            attachments = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+
+            return attachments
+
+        except Exception as e:
+            if self.verbose:
+                print(f"✗ Error getting cached attachments: {e}")
+            return []
+
+    def get_cached_notes_for_item(self, item_key: str, title_prefix: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get child notes for an item from cache
+
+        Args:
+            item_key: Parent item key
+            title_prefix: Optional title prefix to filter notes (e.g., "【ZResearcher Summary:")
+
+        Returns:
+            List of note dictionaries with content
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            if title_prefix:
+                # Filter by title prefix
+                cursor.execute("""
+                    SELECT * FROM notes
+                    WHERE parent_key = ? AND title LIKE ?
+                    ORDER BY created_at DESC
+                """, (item_key, f"{title_prefix}%"))
+            else:
+                # Get all child notes
+                cursor.execute("""
+                    SELECT * FROM notes WHERE parent_key = ?
+                    ORDER BY created_at DESC
+                """, (item_key,))
+
+            notes = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+
+            return notes
+
+        except Exception as e:
+            if self.verbose:
+                print(f"✗ Error getting cached notes: {e}")
+            return []
+
+    def get_cached_attachment_content(self, attachment_key: str) -> Optional[str]:
+        """
+        Read attachment file content from cache
+
+        Args:
+            attachment_key: Attachment key
+
+        Returns:
+            File path to cached attachment, or None if not found
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT local_path, parent_key FROM attachments WHERE attachment_key = ?
+            """, (attachment_key,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row['local_path']:
+                file_path = self.cache_dir / row['local_path']
+                if file_path.exists():
+                    return str(file_path)
+
+            return None
+
+        except Exception as e:
+            if self.verbose:
+                print(f"✗ Error getting cached attachment content: {e}")
+            return None
+
+    def get_item_metadata(self, item_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Get full item metadata from cache
+
+        Args:
+            item_key: Item key
+
+        Returns:
+            Item dictionary with metadata, or None if not found
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT * FROM items WHERE item_key = ?
+            """, (item_key,))
+
+            row = cursor.fetchone()
+            conn.close()
+
+            if row:
+                item = dict(row)
+                # Parse metadata JSON
+                if item['metadata']:
+                    item['data'] = json.loads(item['metadata'])
+                return item
+
+            return None
+
+        except Exception as e:
+            if self.verbose:
+                print(f"✗ Error getting item metadata: {e}")
+            return None
+
+    def get_standalone_notes(self, collection_key: str, title_prefix: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get standalone notes in a collection from cache
+
+        Args:
+            collection_key: Collection key
+            title_prefix: Optional title prefix to filter notes
+
+        Returns:
+            List of note dictionaries
+        """
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+
+            if title_prefix:
+                # Filter by title prefix and collection
+                cursor.execute("""
+                    SELECT n.* FROM notes n
+                    JOIN collection_items ci ON n.note_key = ci.item_key
+                    WHERE ci.collection_key = ? AND n.parent_key IS NULL AND n.title LIKE ?
+                    ORDER BY n.created_at DESC
+                """, (collection_key, f"{title_prefix}%"))
+            else:
+                # Get all standalone notes in collection
+                cursor.execute("""
+                    SELECT n.* FROM notes n
+                    JOIN collection_items ci ON n.note_key = ci.item_key
+                    WHERE ci.collection_key = ? AND n.parent_key IS NULL
+                    ORDER BY n.created_at DESC
+                """, (collection_key,))
+
+            notes = [dict(row) for row in cursor.fetchall()]
+            conn.close()
+
+            return notes
+
+        except Exception as e:
+            if self.verbose:
+                print(f"✗ Error getting standalone notes: {e}")
+            return []

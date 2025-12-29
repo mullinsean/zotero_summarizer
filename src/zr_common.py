@@ -71,7 +71,9 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         anthropic_api_key: str,
         project_name: str = None,
         force_rebuild: bool = False,
-        verbose: bool = False
+        verbose: bool = False,
+        use_cache: bool = False,
+        cache_manager = None
     ):
         """
         Initialize the Zotero researcher base.
@@ -84,12 +86,18 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
             project_name: Name of the research project (used for organizing subcollections and notes)
             force_rebuild: If True, force rebuild of existing general summaries (default: False)
             verbose: If True, show detailed information about all child items
+            use_cache: If True, use local cache instead of API calls (default: False)
+            cache_manager: ZoteroCacheManager instance (required if use_cache=True)
         """
         # Initialize base class
         super().__init__(library_id, library_type, api_key, verbose)
 
         # Validate and store project name
         self.project_name = validate_project_name(project_name) if project_name else None
+
+        # Cache configuration
+        self.use_cache = use_cache
+        self.cache_manager = cache_manager
 
         # Researcher-specific configuration
         self.anthropic_client = Anthropic(api_key=anthropic_api_key)
@@ -476,6 +484,7 @@ gemini_uploaded_files={}
     def get_source_content(self, item: Dict) -> Tuple[Optional[str], Optional[str]]:
         """
         Get content from a source using priority order:
+        0. Cached extracted content (if using cache)
         1. HTML snapshot (Trafilatura)
         2. PDF attachment (PyMuPDF)
         3. DOCX attachment (python-docx)
@@ -491,6 +500,14 @@ gemini_uploaded_files={}
         item_key = item['key']
         item_data = item['data']
         item_title = item_data.get('title', 'Untitled')
+
+        # Priority 0: Use cached extracted content if available
+        if self.use_cache and self.cache_manager:
+            cached_content = self.cache_manager.get_cached_content(item_key)
+            if cached_content:
+                if self.verbose:
+                    print(f"  📦 Using cached content ({len(cached_content):,} chars)")
+                return cached_content, "CACHE"
 
         # Get attachments
         attachments = self.get_item_attachments(item_key)
@@ -771,6 +788,105 @@ gemini_uploaded_files={}
 
         return None
 
+    def _get_items_from_cache(
+        self,
+        collection_key: str,
+        subcollections: Optional[str] = None,
+        include_main: bool = False
+    ) -> List[Dict]:
+        """
+        Get items from cache with optional subcollection filtering.
+
+        Args:
+            collection_key: Main collection key
+            subcollections: Comma-separated subcollection names, "all", or None
+            include_main: Include items from main collection (only relevant when subcollections is set)
+
+        Returns:
+            List of filtered items from cache
+        """
+        # If no subcollection filtering, get all items from collection
+        if not subcollections:
+            cached_items = self.cache_manager.get_cached_items(collection_key)
+            # Convert cache format to API format (add 'data' wrapper for metadata)
+            return cached_items
+
+        # Handle subcollection filtering
+        # For now, pass subcollection names as a list to cache manager
+        if subcollections.lower() == "all":
+            # Get all subcollections (cache manager will handle excluding ZResearcher subcollection)
+            # TODO: Implement in cache manager
+            cached_items = self.cache_manager.get_cached_items(collection_key)
+        else:
+            # Parse comma-separated list
+            requested_names = [name.strip() for name in subcollections.split(',')]
+            cached_items = self.cache_manager.get_cached_items(collection_key, subcollections=requested_names)
+
+        return cached_items
+
+    def has_note_with_prefix(self, item_key: str, prefix: str) -> bool:
+        """
+        Check if an item already has a note starting with a specific prefix.
+        Cache-aware version that delegates to cache when available.
+
+        Args:
+            item_key: The key of the parent item
+            prefix: The prefix to search for (e.g., "【ZResearcher Summary:")
+
+        Returns:
+            True if the item has a note with that prefix
+        """
+        # Use cache if available
+        if self.use_cache and self.cache_manager:
+            notes = self.cache_manager.get_cached_notes_for_item(item_key, title_prefix=prefix)
+            return len(notes) > 0
+
+        # Otherwise use API
+        return super().has_note_with_prefix(item_key, prefix)
+
+    def get_collection_notes(self, collection_key: str) -> List[Dict]:
+        """
+        Get all standalone notes in a collection.
+        Cache-aware version that delegates to cache when available.
+
+        Args:
+            collection_key: Collection key
+
+        Returns:
+            List of note items
+        """
+        # Use cache if available
+        if self.use_cache and self.cache_manager:
+            notes = self.cache_manager.get_standalone_notes(collection_key)
+            # Convert cache format to API format if needed
+            return notes
+
+        # Otherwise use API
+        return super().get_collection_notes(collection_key)
+
+    def get_note_with_prefix(self, item_key: str, prefix: str) -> Optional[str]:
+        """
+        Get the content of a note starting with a specific prefix.
+        Cache-aware version that delegates to cache when available.
+
+        Args:
+            item_key: The key of the parent item
+            prefix: The prefix to search for (e.g., "【ZResearcher Summary:")
+
+        Returns:
+            The HTML content of the note, or None if not found
+        """
+        # Use cache if available
+        if self.use_cache and self.cache_manager:
+            notes = self.cache_manager.get_cached_notes_for_item(item_key, title_prefix=prefix)
+            if notes:
+                # Return the HTML content from the first matching note
+                # Note: Cache stores HTML in the 'content' field
+                return notes[0].get('content', notes[0].get('note', ''))
+
+        # Otherwise use API
+        return super().get_note_with_prefix(item_key, prefix)
+
     def get_items_to_process(
         self,
         collection_key: str,
@@ -791,6 +907,10 @@ gemini_uploaded_files={}
         Raises:
             ValueError: If specified subcollection names not found
         """
+        # Use cache if available
+        if self.use_cache and self.cache_manager:
+            return self._get_items_from_cache(collection_key, subcollections, include_main)
+
         # If no subcollection filtering, return all items from collection
         if not subcollections:
             return self.get_collection_items(collection_key)

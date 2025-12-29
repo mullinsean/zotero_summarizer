@@ -11,6 +11,8 @@ It routes commands to the appropriate workflow modules:
 
 import os
 import argparse
+import sqlite3
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Handle both relative and absolute imports
@@ -34,6 +36,41 @@ except ImportError:
     from zr_cleanup import ZoteroResearcherCleaner
     from zr_export import ZoteroNotebookLMExporter
     from zr_cache import ZoteroCacheManager
+
+
+def check_cache_exists(collection_key: str, cache_dir: str = None) -> bool:
+    """
+    Check if a valid cache exists for the given collection.
+
+    Args:
+        collection_key: Collection key to check
+        cache_dir: Custom cache directory (default: .zotero_cache)
+
+    Returns:
+        True if cache exists and is synced, False otherwise
+    """
+    cache_path = Path(cache_dir) if cache_dir else Path(".zotero_cache")
+    db_path = cache_path / "store.db"
+
+    # Check if database exists
+    if not db_path.exists():
+        return False
+
+    # Check if collection has been synced
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT last_synced FROM sync_state
+            WHERE collection_key = ?
+        """, (collection_key,))
+        result = cursor.fetchone()
+        conn.close()
+
+        # Cache exists and has been synced at least once
+        return result is not None and result[0] is not None
+    except Exception:
+        return False
 
 
 def main():
@@ -247,6 +284,11 @@ Examples:
         help='[Cache] Directory for cache storage (default: .zotero_cache)'
     )
     parser.add_argument(
+        '--no-cache',
+        action='store_true',
+        help='Force API usage even if local cache exists (default: auto-detect cache)'
+    )
+    parser.add_argument(
         '--include-subcollections',
         action='store_true',
         help='[Cache] Include subcollections in cache sync (default: True for --sync-cache)'
@@ -379,6 +421,28 @@ Examples:
         print("\nTip: Run with --list-collections to see available collections")
         return
 
+    # Auto-detect cache (unless --no-cache flag is used)
+    use_cache = False
+    cache_manager = None
+    if not args.no_cache:
+        cache_exists = check_cache_exists(collection_key, args.cache_dir)
+        if cache_exists:
+            use_cache = True
+            # Initialize cache manager for workflows that need it
+            cache_manager = ZoteroCacheManager(
+                library_id,
+                library_type,
+                zotero_api_key,
+                cache_dir=args.cache_dir,
+                verbose=args.verbose
+            )
+            if args.verbose:
+                print(f"📦 Using local cache (found at {cache_manager.cache_dir})")
+                print(f"💡 Tip: Use --no-cache to force API usage\n")
+        elif args.verbose:
+            print(f"ℹ️  No cache found - using Zotero API")
+            print(f"💡 Tip: Run --init-cache and --sync-cache to enable faster offline access\n")
+
     # Handle --organize-sources mode
     if args.organize_sources:
         organizer = ZoteroResearcherOrganizer(
@@ -406,7 +470,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name,
             force_rebuild=args.force,
-            verbose=args.verbose
+            verbose=args.verbose,
+            use_cache=use_cache,
+            cache_manager=cache_manager
         )
         researcher.build_general_summaries(
             collection_key,
@@ -424,7 +490,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name,
             force_rebuild=False,  # Not used in query mode
-            verbose=args.verbose
+            verbose=args.verbose,
+            use_cache=use_cache,
+            cache_manager=cache_manager
         )
         result = researcher.run_query_summary(
             collection_key,
