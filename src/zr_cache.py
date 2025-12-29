@@ -459,7 +459,7 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                                 ))
 
                                 # Download attachment file
-                                if self._download_attachment_to_cache(item_key, child_key, child):
+                                if self._download_attachment_to_cache(cursor, item_key, child_key, child):
                                     stats['attachments_downloaded'] += 1
 
                             elif child_type == 'note':
@@ -483,7 +483,7 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                                 stats['notes_synced'] += 1
 
                         # Extract content from attachments
-                        if self._extract_content_to_cache(item_key):
+                        if self._extract_content_to_cache(cursor, item_key):
                             stats['content_extracted'] += 1
 
                         # Progress indicator
@@ -499,6 +499,9 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                         continue
 
                 print(f"  ✓ Synced {stats['items_synced']} items from {col_name}")
+
+                # Commit after each collection to save progress and release locks
+                conn.commit()
 
             # Sync standalone notes in collection
             standalone_notes = self.zot.collection_items(collection_key, itemType='note')
@@ -567,12 +570,13 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             stats['errors'] += 1
             return stats
 
-    def _download_attachment_to_cache(self, item_key: str, attachment_key: str,
-                                     attachment_data: Dict) -> bool:
+    def _download_attachment_to_cache(self, cursor: sqlite3.Cursor, item_key: str,
+                                     attachment_key: str, attachment_data: Dict) -> bool:
         """
         Download attachment file to cache
 
         Args:
+            cursor: Database cursor to use (to avoid database locking)
             item_key: Parent item key
             attachment_key: Attachment key
             attachment_data: Attachment metadata from API
@@ -599,16 +603,12 @@ class ZoteroCacheManager(ZoteroResearcherBase):
             # Compute hash
             file_hash = self._compute_file_hash(file_path)
 
-            # Update database with local path and hash
-            conn = self.get_connection()
-            cursor = conn.cursor()
+            # Update database with local path and hash (using provided cursor)
             cursor.execute("""
                 UPDATE attachments
                 SET local_path = ?, file_hash = ?
                 WHERE attachment_key = ?
             """, (str(file_path), file_hash, attachment_key))
-            conn.commit()
-            conn.close()
 
             if self.verbose:
                 print(f"    ✓ Downloaded: {filename}")
@@ -620,26 +620,23 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 print(f"    ✗ Failed to download attachment {attachment_key}: {e}")
             return False
 
-    def _extract_content_to_cache(self, item_key: str) -> bool:
+    def _extract_content_to_cache(self, cursor: sqlite3.Cursor, item_key: str) -> bool:
         """
         Extract text content from item attachments and cache it
 
         Args:
+            cursor: Database cursor to use (to avoid database locking)
             item_key: Item key
 
         Returns:
             True if content was extracted
         """
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-
             # Check if already extracted
             cursor.execute("""
                 SELECT item_key FROM extracted_content WHERE item_key = ?
             """, (item_key,))
             if cursor.fetchone():
-                conn.close()
                 return False
 
             # Get attachments
@@ -651,7 +648,6 @@ class ZoteroCacheManager(ZoteroResearcherBase):
 
             attachments = cursor.fetchall()
             if not attachments:
-                conn.close()
                 return False
 
             # Try to extract from first suitable attachment
@@ -704,15 +700,12 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                         extracted_text,
                         datetime.now().isoformat()
                     ))
-                    conn.commit()
-                    conn.close()
 
                     if self.verbose:
                         print(f"    ✓ Extracted content ({method}): {len(extracted_text)} chars")
 
                     return True
 
-            conn.close()
             return False
 
         except Exception as e:
