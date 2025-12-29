@@ -1039,14 +1039,14 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 # Filter by title prefix
                 cursor.execute("""
                     SELECT * FROM notes
-                    WHERE parent_key = ? AND title LIKE ?
-                    ORDER BY created_at DESC
+                    WHERE parent_item_key = ? AND title LIKE ?
+                    ORDER BY last_synced DESC
                 """, (item_key, f"{title_prefix}%"))
             else:
                 # Get all child notes
                 cursor.execute("""
-                    SELECT * FROM notes WHERE parent_key = ?
-                    ORDER BY created_at DESC
+                    SELECT * FROM notes WHERE parent_item_key = ?
+                    ORDER BY last_synced DESC
                 """, (item_key,))
 
             notes = [dict(row) for row in cursor.fetchall()]
@@ -1147,16 +1147,16 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 cursor.execute("""
                     SELECT n.* FROM notes n
                     JOIN collection_items ci ON n.note_key = ci.item_key
-                    WHERE ci.collection_key = ? AND n.parent_key IS NULL AND n.title LIKE ?
-                    ORDER BY n.created_at DESC
+                    WHERE ci.collection_key = ? AND n.parent_item_key IS NULL AND n.title LIKE ?
+                    ORDER BY n.last_synced DESC
                 """, (collection_key, f"{title_prefix}%"))
             else:
                 # Get all standalone notes in collection
                 cursor.execute("""
                     SELECT n.* FROM notes n
                     JOIN collection_items ci ON n.note_key = ci.item_key
-                    WHERE ci.collection_key = ? AND n.parent_key IS NULL
-                    ORDER BY n.created_at DESC
+                    WHERE ci.collection_key = ? AND n.parent_item_key IS NULL
+                    ORDER BY n.last_synced DESC
                 """, (collection_key,))
 
             notes = [dict(row) for row in cursor.fetchall()]
