@@ -400,7 +400,8 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 print(f"\n→ Syncing items in: {col_name}")
 
                 # Get items (with version filtering if incremental)
-                items = self.zot.collection_items(col_key)
+                # Use everything() to get all items across all pages
+                items = self.zot.everything(self.zot.collection_items(col_key))
 
                 for item in items:
                     try:
@@ -504,7 +505,7 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 conn.commit()
 
             # Sync standalone notes in collection
-            standalone_notes = self.zot.collection_items(collection_key, itemType='note')
+            standalone_notes = self.zot.everything(self.zot.collection_items(collection_key, itemType='note'))
             for note in standalone_notes:
                 try:
                     note_key = note['key']
