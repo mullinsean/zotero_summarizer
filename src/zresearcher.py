@@ -662,12 +662,11 @@ Examples:
             verbose=args.verbose
         )
 
-        # Default to including subcollections unless explicitly disabled
-        include_subcollections = args.include_subcollections if hasattr(args, 'include_subcollections') else True
-
+        # Always include subcollections (Option A: cache everything)
+        # This is essential for ZResearcher projects which use subcollections
         stats = cache_manager.sync_collection(
             collection_key,
-            include_subcollections=include_subcollections,
+            include_subcollections=True,  # Always True
             force_full=args.force
         )
 
