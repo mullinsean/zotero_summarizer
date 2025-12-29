@@ -761,11 +761,13 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                 # Try PDF extraction
                 elif 'pdf' in content_type.lower() or local_path.suffix.lower() == '.pdf':
                     try:
-                        extracted_text = self.extract_text_from_pdf(str(local_path))
+                        with open(local_path, 'rb') as f:
+                            pdf_content = f.read()
+                        extracted_text = self.extract_text_from_pdf(pdf_content)
                         method = 'pymupdf'
                     except Exception as e:
                         if self.verbose:
-                            print(f"    ✗ PDF extraction failed: {e}")
+                            print(f"    ❌ Error extracting PDF text: {e}")
 
                 # Try plain text
                 elif 'text' in content_type.lower() or local_path.suffix.lower() == '.txt':
