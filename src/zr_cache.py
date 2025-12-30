@@ -1174,19 +1174,19 @@ class ZoteroCacheManager(ZoteroResearcherBase):
 
             if title_prefix:
                 # Filter by title prefix and collection
+                # Notes have collection_key directly, no need for JOIN
                 cursor.execute("""
-                    SELECT n.* FROM notes n
-                    JOIN collection_items ci ON n.note_key = ci.item_key
-                    WHERE ci.collection_key = ? AND n.parent_item_key IS NULL AND n.title LIKE ?
-                    ORDER BY n.last_synced DESC
+                    SELECT * FROM notes
+                    WHERE collection_key = ? AND parent_item_key IS NULL AND title LIKE ?
+                    ORDER BY last_synced DESC
                 """, (collection_key, f"{title_prefix}%"))
             else:
                 # Get all standalone notes in collection
+                # Notes have collection_key directly, no need for JOIN
                 cursor.execute("""
-                    SELECT n.* FROM notes n
-                    JOIN collection_items ci ON n.note_key = ci.item_key
-                    WHERE ci.collection_key = ? AND n.parent_item_key IS NULL
-                    ORDER BY n.last_synced DESC
+                    SELECT * FROM notes
+                    WHERE collection_key = ? AND parent_item_key IS NULL
+                    ORDER BY last_synced DESC
                 """, (collection_key,))
 
             notes = [dict(row) for row in cursor.fetchall()]
