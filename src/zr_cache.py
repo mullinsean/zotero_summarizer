@@ -1189,9 +1189,22 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                     ORDER BY last_synced DESC
                 """, (collection_key,))
 
-            notes = [dict(row) for row in cursor.fetchall()]
-            conn.close()
+            # Transform cache format to API-compatible format
+            notes = []
+            for row in cursor.fetchall():
+                note_dict = dict(row)
+                # API format has note HTML in data.note
+                api_note = {
+                    'key': note_dict['note_key'],
+                    'version': note_dict['version'],
+                    'data': {
+                        'note': note_dict['content_html'],
+                        'itemType': 'note'
+                    }
+                }
+                notes.append(api_note)
 
+            conn.close()
             return notes
 
         except Exception as e:
