@@ -976,13 +976,17 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                     WHERE ci.collection_key = ?
                 """, (collection_key,))
 
+            # Transform cache format to API-compatible format
             items = []
             for row in cursor.fetchall():
-                item = dict(row)
-                # Parse metadata JSON
-                if item['metadata']:
-                    item['data'] = json.loads(item['metadata'])
-                items.append(item)
+                item_dict = dict(row)
+                # API format uses 'key' instead of 'item_key'
+                api_item = {
+                    'key': item_dict['item_key'],
+                    'version': item_dict['version'],
+                    'data': json.loads(item_dict['metadata']) if item_dict['metadata'] else {}
+                }
+                items.append(api_item)
 
             conn.close()
             return items
