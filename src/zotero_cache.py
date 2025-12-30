@@ -600,6 +600,98 @@ class ZoteroCache:
 
         self._log(f"Cleared all cache data")
 
+    def remove_orphaned_items(self, valid_item_keys: set, collection_key: str = None) -> int:
+        """
+        Remove items from cache that are no longer in the API response.
+
+        This handles the case where items are deleted from Zotero but still
+        exist in the local cache.
+
+        Args:
+            valid_item_keys: Set of item keys that should remain in cache
+            collection_key: If provided, only remove orphaned items from this collection
+
+        Returns:
+            Number of items removed
+        """
+        removed_count = 0
+
+        with sqlite3.connect(self.db_path) as conn:
+            if collection_key:
+                # Get items that are in this collection but not in valid_item_keys
+                cursor = conn.execute(
+                    """
+                    SELECT DISTINCT item_key FROM item_collections
+                    WHERE collection_key = ?
+                    """,
+                    (collection_key,)
+                )
+            else:
+                # Get all items in cache
+                cursor = conn.execute("SELECT key FROM items")
+
+            cached_keys = {row[0] for row in cursor.fetchall()}
+            orphaned_keys = cached_keys - valid_item_keys
+
+            for item_key in orphaned_keys:
+                # Delete children first
+                conn.execute("DELETE FROM children WHERE parent_key = ?", (item_key,))
+                # Delete item-collection memberships
+                conn.execute("DELETE FROM item_collections WHERE item_key = ?", (item_key,))
+                # Delete item
+                conn.execute("DELETE FROM items WHERE key = ?", (item_key,))
+                removed_count += 1
+
+                # Clear session cache
+                self._session_cache.pop(f"children_{item_key}", None)
+
+            conn.commit()
+
+        # Clear collection item caches
+        keys_to_remove = [k for k in self._session_cache if k.startswith("items_")]
+        for k in keys_to_remove:
+            self._session_cache.pop(k, None)
+
+        if removed_count > 0:
+            self._log(f"Removed {removed_count} orphaned items from cache")
+
+        return removed_count
+
+    def remove_orphaned_children(self, parent_key: str, valid_child_keys: set) -> int:
+        """
+        Remove children from cache that are no longer in the API response.
+
+        Args:
+            parent_key: Parent item key
+            valid_child_keys: Set of child keys that should remain in cache
+
+        Returns:
+            Number of children removed
+        """
+        removed_count = 0
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT key FROM children WHERE parent_key = ?",
+                (parent_key,)
+            )
+            cached_keys = {row[0] for row in cursor.fetchall()}
+            orphaned_keys = cached_keys - valid_child_keys
+
+            for child_key in orphaned_keys:
+                conn.execute("DELETE FROM children WHERE key = ?", (child_key,))
+                removed_count += 1
+
+            conn.commit()
+
+        # Clear session cache
+        self._session_cache.pop(f"children_{parent_key}", None)
+
+        if removed_count > 0:
+            self._log(f"Removed {removed_count} orphaned children for {parent_key}")
+
+        return removed_count
+
     # =========================================================================
     # Statistics / Status
     # =========================================================================

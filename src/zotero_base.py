@@ -189,12 +189,23 @@ class ZoteroBaseProcessor:
                 children = self.zot.children(item_key)
                 if children:
                     cache.store_children(children, item_key)
+                    # Remove orphaned children (deleted from Zotero)
+                    valid_child_keys = {c['key'] for c in children}
+                    cache.remove_orphaned_children(item_key, valid_child_keys)
                     total_children += len(children)
+                else:
+                    # No children from API - remove any cached children
+                    cache.remove_orphaned_children(item_key, set())
 
                 if progress_callback:
                     progress_callback(i + 1, len(unique_items), "children")
 
             print(f"   Synced {total_children} children for {len(unique_items)} items")
+
+            # Step 4b: Remove orphaned items (deleted from Zotero)
+            removed_count = cache.remove_orphaned_items(seen_keys)
+            if removed_count > 0:
+                print(f"   Removed {removed_count} deleted items from cache")
 
             # Step 5: Download attachments (if eager caching enabled)
             if sync_attachments:
