@@ -25,7 +25,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         api_key: str,
         anthropic_api_key: str,
         project_name: str = None,
-        verbose: bool = False
+        verbose: bool = False,
+        enable_cache: bool = False,
+        cache_dir: str = None,
+        offline: bool = False
     ):
         """
         Initialize the cleanup handler.
@@ -37,6 +40,9 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             anthropic_api_key: Anthropic API key (required for base class, not used in cleanup)
             project_name: Name of the project to clean up (optional for collection-wide cleanup)
             verbose: If True, show detailed information
+            enable_cache: If True, enable local caching
+            cache_dir: Custom cache directory (default: ~/.zotero_summarizer/cache)
+            offline: If True, work offline using only cached data
         """
         super().__init__(
             library_id=library_id,
@@ -44,7 +50,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             api_key=api_key,
             anthropic_api_key=anthropic_api_key,
             project_name=project_name,
-            verbose=verbose
+            verbose=verbose,
+            enable_cache=enable_cache,
+            cache_dir=cache_dir,
+            offline=offline
         )
 
     def is_general_summary_note(self, note_html: str, project_name: str = None) -> bool:
