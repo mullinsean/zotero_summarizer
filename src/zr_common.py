@@ -71,7 +71,10 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         anthropic_api_key: str,
         project_name: str = None,
         force_rebuild: bool = False,
-        verbose: bool = False
+        verbose: bool = False,
+        enable_cache: bool = False,
+        cache_dir: str = None,
+        offline: bool = False
     ):
         """
         Initialize the Zotero researcher base.
@@ -84,9 +87,15 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
             project_name: Name of the research project (used for organizing subcollections and notes)
             force_rebuild: If True, force rebuild of existing general summaries (default: False)
             verbose: If True, show detailed information about all child items
+            enable_cache: If True, enable local caching for faster operations
+            cache_dir: Custom cache directory (default: ~/.zotero_summarizer/cache)
+            offline: If True, work offline using only cached data
         """
-        # Initialize base class
-        super().__init__(library_id, library_type, api_key, verbose)
+        # Initialize base class with cache parameters
+        super().__init__(
+            library_id, library_type, api_key, verbose,
+            enable_cache=enable_cache, cache_dir=cache_dir, offline=offline
+        )
 
         # Validate and store project name
         self.project_name = validate_project_name(project_name) if project_name else None

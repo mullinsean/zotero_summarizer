@@ -424,7 +424,9 @@ Examples:
             anthropic_api_key,
             project_name="temp",  # Dummy project name
             force_rebuild=False,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         temp_researcher.list_projects(collection_key)
         return
@@ -443,7 +445,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name,
             force_rebuild=args.force,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         researcher.init_collection(collection_key, force=args.force)
         return
@@ -466,7 +470,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name if project_name else "temp",  # Optional for organize
             force_rebuild=False,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         stats = organizer.organize_sources(
             collection_key,
@@ -484,7 +490,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name,
             force_rebuild=args.force,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         researcher.build_general_summaries(
             collection_key,
@@ -502,7 +510,9 @@ Examples:
             anthropic_api_key,
             project_name=project_name,
             force_rebuild=False,  # Not used in query mode
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         result = researcher.run_query_summary(
             collection_key,
@@ -527,7 +537,9 @@ Examples:
             gemini_api_key,
             project_name=project_name,
             force_rebuild=args.force,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
 
         # Upload files to Gemini file search store
@@ -552,7 +564,9 @@ Examples:
             gemini_api_key,
             project_name=project_name,
             force_rebuild=args.force,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
 
         # Run file search (requires files to be uploaded first)
@@ -575,7 +589,9 @@ Examples:
             zotero_api_key,
             anthropic_api_key or "",  # Not used in cleanup, but required by base class
             project_name=project_name,
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         cleaner.cleanup_project(
             collection_key,
@@ -593,7 +609,9 @@ Examples:
             zotero_api_key,
             anthropic_api_key or "",  # Not used in cleanup, but required by base class
             project_name="temp",  # Not used for collection-wide cleanup
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         cleaner.cleanup_all_projects(
             collection_key,
@@ -609,7 +627,9 @@ Examples:
             library_type,
             zotero_api_key,
             anthropic_api_key or "",  # Not used in export, but required by base class
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         stats = exporter.export_to_notebooklm(
             collection_key,
@@ -639,7 +659,9 @@ Examples:
             library_type,
             zotero_api_key,
             anthropic_api_key or "",  # Not used in export, but required by base class
-            verbose=args.verbose
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
         )
         stats = exporter.export_summaries_to_markdown(
             collection_key,
