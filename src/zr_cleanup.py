@@ -369,17 +369,21 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         return result
 
-    def delete_collection_recursive(self, collection_key: str) -> Dict[str, any]:
+    def delete_collection_recursive(self, collection_key: str, parent_collection_key: str = None) -> Dict[str, any]:
         """
         Delete a collection and all its contents recursively.
 
         Args:
             collection_key: The collection key to delete
+            parent_collection_key: Optional parent collection key for cache invalidation
 
         Returns:
             Dict with deletion results: {'notes': N, 'files': N, 'items': N, 'errors': [...]}
         """
         deleted = {'notes': 0, 'files': 0, 'items': 0, 'errors': []}
+
+        # Get cache instance if available
+        cache = self._get_cache(parent_collection_key) if parent_collection_key else None
 
         try:
             # Get all items in collection (including children)
@@ -392,6 +396,15 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                     item_type = item['data'].get('itemType', 'unknown')
 
                     self.zot.delete_item(item)
+
+                    # Invalidate cache for deleted item
+                    if cache:
+                        if item_type == 'note' or item_type == 'attachment':
+                            # For child items, invalidate as child
+                            cache.invalidate_child(item_key)
+                        else:
+                            # For regular items, invalidate item and all its children
+                            cache.invalidate_item(item_key)
 
                     if item_type == 'note':
                         deleted['notes'] += 1
@@ -411,6 +424,11 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                 # Retrieve collection object (pyzotero requires the full object, not just the key)
                 collection = self.zot.collection(collection_key)
                 self.zot.delete_collection(collection)
+
+                # Invalidate cache for deleted collection
+                if cache:
+                    cache.invalidate_collection(collection_key)
+
             except Exception as e:
                 error_msg = f"Failed to delete collection {collection_key}: {e}"
                 deleted['errors'].append(error_msg)
@@ -503,7 +521,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete subcollection and contents
         for subcoll in subcollections:
             print(f"\n  Deleting {subcoll['name']}...")
-            result = self.delete_collection_recursive(subcoll['key'])
+            result = self.delete_collection_recursive(subcoll['key'], parent_collection_key=collection_key)
             total_deleted['notes'] += result['notes']
             total_deleted['files'] += result['files']
             total_deleted['items'] += result['items']
@@ -512,9 +530,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete general summary notes
         if summary_notes:
             print(f"\n  Deleting {len(summary_notes)} general summary notes...")
+            cache = self._get_cache(collection_key)
             for note in summary_notes:
                 try:
+                    note_key = note.get('key')
                     self.zot.delete_item(note)
+
+                    # Invalidate cache for deleted note
+                    if cache and note_key:
+                        cache.invalidate_child(note_key)
+
                     total_deleted['notes'] += 1
                 except Exception as e:
                     error_msg = f"Failed to delete note {note.get('key', 'unknown')}: {e}"
@@ -605,7 +630,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete all subcollections
         for subcoll in subcollections:
             print(f"\n  Deleting {subcoll['name']}...")
-            result = self.delete_collection_recursive(subcoll['key'])
+            result = self.delete_collection_recursive(subcoll['key'], parent_collection_key=collection_key)
             total_deleted['notes'] += result['notes']
             total_deleted['files'] += result['files']
             total_deleted['items'] += result['items']
@@ -614,9 +639,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete all general summary notes
         if summary_notes:
             print(f"\n  Deleting {len(summary_notes)} general summary notes...")
+            cache = self._get_cache(collection_key)
             for note in summary_notes:
                 try:
+                    note_key = note.get('key')
                     self.zot.delete_item(note)
+
+                    # Invalidate cache for deleted note
+                    if cache and note_key:
+                        cache.invalidate_child(note_key)
+
                     total_deleted['notes'] += 1
                 except Exception as e:
                     error_msg = f"Failed to delete note {note.get('key', 'unknown')}: {e}"
