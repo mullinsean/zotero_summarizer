@@ -25,7 +25,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         api_key: str,
         anthropic_api_key: str,
         project_name: str = None,
-        verbose: bool = False
+        verbose: bool = False,
+        enable_cache: bool = False,
+        cache_dir: str = None,
+        offline: bool = False
     ):
         """
         Initialize the cleanup handler.
@@ -37,6 +40,9 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             anthropic_api_key: Anthropic API key (required for base class, not used in cleanup)
             project_name: Name of the project to clean up (optional for collection-wide cleanup)
             verbose: If True, show detailed information
+            enable_cache: If True, enable local caching
+            cache_dir: Custom cache directory (default: ~/.zotero_summarizer/cache)
+            offline: If True, work offline using only cached data
         """
         super().__init__(
             library_id=library_id,
@@ -44,7 +50,10 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             api_key=api_key,
             anthropic_api_key=anthropic_api_key,
             project_name=project_name,
-            verbose=verbose
+            verbose=verbose,
+            enable_cache=enable_cache,
+            cache_dir=cache_dir,
+            offline=offline
         )
 
     def is_general_summary_note(self, note_html: str, project_name: str = None) -> bool:
@@ -58,24 +67,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         Returns:
             True if note is a general summary (for the specified project if provided)
         """
-        # Check structure: should start with the summary heading
+        # Check title: should match the pattern 【ZResearcher Summary: PROJECT_NAME】
         title = self.get_note_title_from_html(note_html)
 
-        # Modern format: 【ZResearcher Summary: PROJECT_NAME】
         if project_name:
+            # Check for specific project
             expected_title = f"【ZResearcher Summary: {project_name}】"
-            if expected_title not in title:
-                return False
+            return expected_title in title
         else:
             # Check if it matches the pattern for any project
-            if not ('【ZResearcher Summary:' in title and '】' in title):
-                return False
-
-        # Verify it has the expected structure
-        text = self.extract_text_from_note_html(note_html)
-        required_sections = ['## Metadata', '## Tags', '## Summary']
-
-        return all(section in text for section in required_sections)
+            return '【ZResearcher Summary:' in title and '】' in title
 
     def find_general_summary_notes_for_project(
         self,
@@ -368,17 +369,21 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         return result
 
-    def delete_collection_recursive(self, collection_key: str) -> Dict[str, any]:
+    def delete_collection_recursive(self, collection_key: str, parent_collection_key: str = None) -> Dict[str, any]:
         """
         Delete a collection and all its contents recursively.
 
         Args:
             collection_key: The collection key to delete
+            parent_collection_key: Optional parent collection key for cache invalidation
 
         Returns:
             Dict with deletion results: {'notes': N, 'files': N, 'items': N, 'errors': [...]}
         """
         deleted = {'notes': 0, 'files': 0, 'items': 0, 'errors': []}
+
+        # Get cache instance if available
+        cache = self._get_cache(parent_collection_key) if parent_collection_key else None
 
         try:
             # Get all items in collection (including children)
@@ -391,6 +396,15 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                     item_type = item['data'].get('itemType', 'unknown')
 
                     self.zot.delete_item(item)
+
+                    # Invalidate cache for deleted item
+                    if cache:
+                        if item_type == 'note' or item_type == 'attachment':
+                            # For child items, invalidate as child
+                            cache.invalidate_child(item_key)
+                        else:
+                            # For regular items, invalidate item and all its children
+                            cache.invalidate_item(item_key)
 
                     if item_type == 'note':
                         deleted['notes'] += 1
@@ -410,6 +424,11 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
                 # Retrieve collection object (pyzotero requires the full object, not just the key)
                 collection = self.zot.collection(collection_key)
                 self.zot.delete_collection(collection)
+
+                # Invalidate cache for deleted collection
+                if cache:
+                    cache.invalidate_collection(collection_key)
+
             except Exception as e:
                 error_msg = f"Failed to delete collection {collection_key}: {e}"
                 deleted['errors'].append(error_msg)
@@ -502,7 +521,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete subcollection and contents
         for subcoll in subcollections:
             print(f"\n  Deleting {subcoll['name']}...")
-            result = self.delete_collection_recursive(subcoll['key'])
+            result = self.delete_collection_recursive(subcoll['key'], parent_collection_key=collection_key)
             total_deleted['notes'] += result['notes']
             total_deleted['files'] += result['files']
             total_deleted['items'] += result['items']
@@ -511,9 +530,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete general summary notes
         if summary_notes:
             print(f"\n  Deleting {len(summary_notes)} general summary notes...")
+            cache = self._get_cache(collection_key)
             for note in summary_notes:
                 try:
+                    note_key = note.get('key')
                     self.zot.delete_item(note)
+
+                    # Invalidate cache for deleted note
+                    if cache and note_key:
+                        cache.invalidate_child(note_key)
+
                     total_deleted['notes'] += 1
                 except Exception as e:
                     error_msg = f"Failed to delete note {note.get('key', 'unknown')}: {e}"
@@ -604,7 +630,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete all subcollections
         for subcoll in subcollections:
             print(f"\n  Deleting {subcoll['name']}...")
-            result = self.delete_collection_recursive(subcoll['key'])
+            result = self.delete_collection_recursive(subcoll['key'], parent_collection_key=collection_key)
             total_deleted['notes'] += result['notes']
             total_deleted['files'] += result['files']
             total_deleted['items'] += result['items']
@@ -613,9 +639,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         # Delete all general summary notes
         if summary_notes:
             print(f"\n  Deleting {len(summary_notes)} general summary notes...")
+            cache = self._get_cache(collection_key)
             for note in summary_notes:
                 try:
+                    note_key = note.get('key')
                     self.zot.delete_item(note)
+
+                    # Invalidate cache for deleted note
+                    if cache and note_key:
+                        cache.invalidate_child(note_key)
+
                     total_deleted['notes'] += 1
                 except Exception as e:
                     error_msg = f"Failed to delete note {note.get('key', 'unknown')}: {e}"
