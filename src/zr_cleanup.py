@@ -58,24 +58,16 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         Returns:
             True if note is a general summary (for the specified project if provided)
         """
-        # Check structure: should start with the summary heading
+        # Check title: should match the pattern 【ZResearcher Summary: PROJECT_NAME】
         title = self.get_note_title_from_html(note_html)
 
-        # Modern format: 【ZResearcher Summary: PROJECT_NAME】
         if project_name:
+            # Check for specific project
             expected_title = f"【ZResearcher Summary: {project_name}】"
-            if expected_title not in title:
-                return False
+            return expected_title in title
         else:
             # Check if it matches the pattern for any project
-            if not ('【ZResearcher Summary:' in title and '】' in title):
-                return False
-
-        # Verify it has the expected structure
-        text = self.extract_text_from_note_html(note_html)
-        required_sections = ['## Metadata', '## Tags', '## Summary']
-
-        return all(section in text for section in required_sections)
+            return '【ZResearcher Summary:' in title and '】' in title
 
     def find_general_summary_notes_for_project(
         self,
