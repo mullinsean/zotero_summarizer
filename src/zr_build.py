@@ -79,17 +79,20 @@ class ZoteroResearcherBuilder(ZoteroResearcherBase):
 
         return tags
 
-    def has_general_summary(self, item_key: str) -> bool:
+    def has_general_summary(self, item_key: str, collection_key: str = None) -> bool:
         """
         Check if an item has a cached general summary note for this project.
 
         Args:
             item_key: The key of the item
+            collection_key: Optional collection key for cache lookup
 
         Returns:
             True if a general summary exists for this project
         """
-        return self.has_note_with_prefix(item_key, self._get_summary_note_prefix())
+        return self.has_note_with_prefix(
+            item_key, self._get_summary_note_prefix(), collection_key
+        )
 
     def format_general_summary_note(
         self,
@@ -218,7 +221,7 @@ Project: {self.project_name}
             item_title = item['data'].get('title', 'Untitled')
 
             # Check if general summary already exists
-            has_existing_summary = self.has_general_summary(item_key)
+            has_existing_summary = self.has_general_summary(item_key, collection_key)
 
             if has_existing_summary and not self.force_rebuild:
                 print(f"[{idx}/{len(items)}] ✓ {item_title} - already has summary, skipping")
@@ -343,7 +346,9 @@ Project: {self.project_name}
                 if self.force_rebuild and item_data.get('has_existing_summary'):
                     if self.verbose:
                         print(f"  🗑️  Deleting existing summary...")
-                    self.delete_note_with_prefix(item_key, self._get_summary_note_prefix())
+                    self.delete_note_with_prefix(
+                        item_key, self._get_summary_note_prefix(), collection_key
+                    )
 
                 # Format and create note
                 note_content = self.format_general_summary_note(
@@ -357,7 +362,8 @@ Project: {self.project_name}
                     parent_key=item_key,
                     content=note_content,
                     title=self._get_summary_note_prefix(),
-                    convert_markdown=True
+                    convert_markdown=True,
+                    collection_key=collection_key
                 )
 
                 if success:

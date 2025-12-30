@@ -283,7 +283,7 @@ Edit this note before running --file-search"""
                     item_type = item['data'].get('itemType')
                     if item_type in ['attachment', 'note']:
                         continue
-                    if self.has_note_with_prefix(item['key'], summary_prefix):
+                    if self.has_note_with_prefix(item['key'], summary_prefix, collection_key):
                         summaries_count += 1
 
                 print(f"   Sources with summaries: {summaries_count}/{len([i for i in items if i['data'].get('itemType') not in ['attachment', 'note']])}")

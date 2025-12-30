@@ -623,7 +623,12 @@ class ZoteroBaseProcessor:
             print(f"  ❌ Error downloading attachment: {e}")
             return None
 
-    def has_note_with_prefix(self, item_key: str, prefix: str) -> bool:
+    def has_note_with_prefix(
+        self,
+        item_key: str,
+        prefix: str,
+        collection_key: Optional[str] = None
+    ) -> bool:
         """
         Check if an item already has a note starting with a specific prefix.
 
@@ -633,11 +638,12 @@ class ZoteroBaseProcessor:
         Args:
             item_key: The key of the parent item
             prefix: The prefix to search for (e.g., "AI Summary:", "Markdown Extract:")
+            collection_key: Optional collection key for cache lookup
 
         Returns:
             True if the item has a note with that prefix
         """
-        children = self.get_item_children(item_key)
+        children = self.get_item_children(item_key, collection_key)
         notes = [child for child in children if child['data'].get('itemType') == 'note']
 
         for note in notes:
@@ -650,18 +656,24 @@ class ZoteroBaseProcessor:
 
         return False
 
-    def get_note_with_prefix(self, item_key: str, prefix: str) -> Optional[str]:
+    def get_note_with_prefix(
+        self,
+        item_key: str,
+        prefix: str,
+        collection_key: Optional[str] = None
+    ) -> Optional[str]:
         """
         Get the content of a note starting with a specific prefix.
 
         Args:
             item_key: The key of the parent item
             prefix: The prefix to search for (e.g., "AI Summary:", "Markdown Extract:")
+            collection_key: Optional collection key for cache lookup
 
         Returns:
             The HTML content of the note, or None if not found
         """
-        children = self.get_item_children(item_key)
+        children = self.get_item_children(item_key, collection_key)
         notes = [child for child in children if child['data'].get('itemType') == 'note']
 
         for note in notes:

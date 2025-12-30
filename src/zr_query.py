@@ -432,13 +432,17 @@ Respond with ONLY the title, nothing else. No quotes, no punctuation at the end.
             item_key = item['key']
 
             # Check for general summary
-            if not self.has_note_with_prefix(item_key, self._get_summary_note_prefix()):
+            if not self.has_note_with_prefix(
+                item_key, self._get_summary_note_prefix(), collection_key
+            ):
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - no summary (run --build-summaries first)")
                 missing_summaries += 1
                 continue
 
             # Parse general summary note
-            summary_note = self.get_note_with_prefix(item_key, self._get_summary_note_prefix())
+            summary_note = self.get_note_with_prefix(
+                item_key, self._get_summary_note_prefix(), collection_key
+            )
             if not summary_note:
                 print(f"[{idx}/{len(items)}] ⚠️  {item_title} - could not load summary")
                 missing_summaries += 1
