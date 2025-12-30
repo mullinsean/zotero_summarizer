@@ -621,11 +621,8 @@ class ZoteroCacheManager(ZoteroResearcherBase):
                                 datetime.now().isoformat()
                             ))
 
-                            # Add to collection_items mapping
-                            cursor.execute("""
-                                INSERT OR IGNORE INTO collection_items (collection_key, item_key)
-                                VALUES (?, ?)
-                            """, (col_key, note_key))
+                            # Notes already have collection_key in the notes table,
+                            # no need to add to collection_items (would cause FK constraint error)
 
                             stats['notes_synced'] += 1
 
