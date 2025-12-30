@@ -4,11 +4,15 @@ Zotero Base Processor
 
 Base class providing shared functionality for processing Zotero collections,
 including attachment detection, note creation, and verbose output.
+
+Supports optional local caching for offline operation and reduced API calls.
 """
 
 import markdown
 from pyzotero import zotero
 from typing import Optional, Dict, List
+
+from .zotero_cache import ZoteroCache
 
 
 class ZoteroBaseProcessor:
@@ -19,7 +23,10 @@ class ZoteroBaseProcessor:
         library_id: str,
         library_type: str,
         api_key: str,
-        verbose: bool = False
+        verbose: bool = False,
+        enable_cache: bool = False,
+        cache_dir: Optional[str] = None,
+        offline: bool = False
     ):
         """
         Initialize the Zotero base processor.
@@ -29,9 +36,285 @@ class ZoteroBaseProcessor:
             library_type: 'user' or 'group'
             api_key: Your Zotero API key
             verbose: If True, show detailed information about all child items
+            enable_cache: If True, enable local caching
+            cache_dir: Custom cache directory (default: ~/.zotero_summarizer/cache)
+            offline: If True, only use cached data (no API calls)
         """
+        self.library_id = library_id
         self.zot = zotero.Zotero(library_id, library_type, api_key)
         self.verbose = verbose
+
+        # Cache configuration
+        self.enable_cache = enable_cache
+        self.cache_dir = cache_dir
+        self.offline = offline
+        self._caches: Dict[str, ZoteroCache] = {}  # Per-collection caches
+
+    # =========================================================================
+    # Cache Management
+    # =========================================================================
+
+    def _get_cache(self, collection_key: str) -> Optional[ZoteroCache]:
+        """Get or create cache for a collection."""
+        if not self.enable_cache:
+            return None
+
+        if collection_key not in self._caches:
+            self._caches[collection_key] = ZoteroCache(
+                library_id=self.library_id,
+                collection_key=collection_key,
+                cache_dir=self.cache_dir,
+                verbose=self.verbose
+            )
+        return self._caches[collection_key]
+
+    def _log_cache(self, message: str):
+        """Log cache-related message if verbose."""
+        if self.verbose:
+            print(f"[Cache] {message}")
+
+    def get_library_version(self) -> Optional[int]:
+        """Get current library version from Zotero API."""
+        if self.offline:
+            return None
+        try:
+            # Fetch a minimal request to get the library version
+            # The version is in the response headers
+            self.zot.collections(limit=1)
+            return self.zot.request.headers.get('Last-Modified-Version')
+        except Exception as e:
+            if self.verbose:
+                print(f"[Cache] Error getting library version: {e}")
+            return None
+
+    def sync_collection(
+        self,
+        collection_key: str,
+        force: bool = False,
+        sync_attachments: bool = True,
+        progress_callback=None
+    ) -> bool:
+        """
+        Sync a collection and all its subcollections to local cache.
+
+        Args:
+            collection_key: Collection to sync
+            force: If True, do full sync ignoring cache state
+            sync_attachments: If True, download all attachments (eager caching)
+            progress_callback: Optional callback for progress updates
+
+        Returns:
+            True if sync was successful
+        """
+        if self.offline:
+            print("Cannot sync in offline mode")
+            return False
+
+        cache = self._get_cache(collection_key)
+        if not cache:
+            print("Cache not enabled")
+            return False
+
+        print(f"\n=== Syncing Collection {collection_key} ===")
+
+        try:
+            # Check if delta sync is possible
+            if not force and cache.is_synced():
+                cached_version = cache.get_library_version()
+                print(f"Cache version: {cached_version}")
+                print("Checking for updates...")
+                # For now, always do full sync on explicit --sync
+                # Delta sync will be used for auto-sync on workflow start
+
+            # Step 1: Sync the parent collection metadata
+            print("\n1. Syncing collection metadata...")
+            collections = self.zot.collections()
+            parent_coll = None
+            for coll in collections:
+                if coll['key'] == collection_key:
+                    parent_coll = coll
+                    cache.store_collection(coll)
+                    break
+
+            if not parent_coll:
+                print(f"Collection {collection_key} not found!")
+                return False
+
+            print(f"   Parent: {parent_coll['data']['name']}")
+
+            # Step 2: Sync all subcollections
+            print("\n2. Syncing subcollections...")
+            subcollections = self.zot.collections_sub(collection_key)
+            for subcoll in subcollections:
+                cache.store_collection(subcoll)
+            print(f"   Found {len(subcollections)} subcollections")
+
+            # Step 3: Sync all items in collection (top-level)
+            print("\n3. Syncing items...")
+            items = list(self.zot.everything(self.zot.collection_items_top(collection_key)))
+            cache.store_items(items, collection_key)
+            print(f"   Found {len(items)} items in parent collection")
+
+            # Also sync items in subcollections
+            for subcoll in subcollections:
+                subcoll_key = subcoll['key']
+                subcoll_items = list(self.zot.everything(
+                    self.zot.collection_items_top(subcoll_key)
+                ))
+                cache.store_items(subcoll_items, subcoll_key)
+                if subcoll_items:
+                    print(f"   Found {len(subcoll_items)} items in {subcoll['data']['name']}")
+
+            # Step 4: Sync all children (notes + attachments) for each item
+            print("\n4. Syncing item children (notes & attachments)...")
+            all_items = list(items)  # Start with parent items
+            for subcoll in subcollections:
+                subcoll_key = subcoll['key']
+                subcoll_items = list(self.zot.everything(
+                    self.zot.collection_items_top(subcoll_key)
+                ))
+                all_items.extend(subcoll_items)
+
+            # Deduplicate items (same item can be in multiple collections)
+            seen_keys = set()
+            unique_items = []
+            for item in all_items:
+                if item['key'] not in seen_keys:
+                    seen_keys.add(item['key'])
+                    unique_items.append(item)
+
+            total_children = 0
+            for i, item in enumerate(unique_items):
+                item_key = item['key']
+                children = self.zot.children(item_key)
+                if children:
+                    cache.store_children(children, item_key)
+                    total_children += len(children)
+
+                if progress_callback:
+                    progress_callback(i + 1, len(unique_items), "children")
+
+            print(f"   Synced {total_children} children for {len(unique_items)} items")
+
+            # Step 5: Download attachments (if eager caching enabled)
+            if sync_attachments:
+                print("\n5. Downloading attachments...")
+                attachment_count = 0
+                skipped_count = 0
+
+                for i, item in enumerate(unique_items):
+                    item_key = item['key']
+                    children = cache.get_item_children(item_key) or []
+                    attachments = [
+                        c for c in children
+                        if c['data'].get('itemType') == 'attachment'
+                    ]
+
+                    for att in attachments:
+                        att_key = att['key']
+                        if cache.has_attachment_file(att_key):
+                            skipped_count += 1
+                            continue
+
+                        try:
+                            content = self.zot.file(att_key)
+                            cache.store_attachment_file(att_key, content, att['data'])
+                            attachment_count += 1
+                        except Exception as e:
+                            if self.verbose:
+                                print(f"   Warning: Could not download {att_key}: {e}")
+
+                    if progress_callback:
+                        progress_callback(i + 1, len(unique_items), "attachments")
+
+                print(f"   Downloaded {attachment_count} attachments ({skipped_count} already cached)")
+
+            # Update sync state
+            cache.set_last_sync_time()
+            # Try to get library version for delta sync
+            try:
+                self.zot.collections(limit=1)
+                version = self.zot.request.headers.get('Last-Modified-Version')
+                if version:
+                    cache.set_library_version(int(version))
+            except Exception:
+                pass
+
+            print("\n=== Sync Complete ===")
+            cache.print_stats()
+            return True
+
+        except Exception as e:
+            print(f"\nSync failed: {e}")
+            if self.verbose:
+                import traceback
+                traceback.print_exc()
+            return False
+
+    def delta_sync_collection(self, collection_key: str) -> bool:
+        """
+        Perform delta sync - only fetch changes since last sync.
+
+        This is called automatically on workflow start when cache is enabled.
+
+        Args:
+            collection_key: Collection to sync
+
+        Returns:
+            True if sync was successful or no sync needed
+        """
+        if self.offline:
+            self._log_cache("Offline mode - skipping delta sync")
+            return True
+
+        cache = self._get_cache(collection_key)
+        if not cache:
+            return True  # No cache, nothing to sync
+
+        if not cache.is_synced():
+            self._log_cache(f"Collection {collection_key} not synced yet")
+            return False
+
+        # Check if sync is needed
+        try:
+            self.zot.collections(limit=1)
+            current_version = self.zot.request.headers.get('Last-Modified-Version')
+            if current_version:
+                current_version = int(current_version)
+                if not cache.needs_sync(current_version):
+                    self._log_cache("Cache is up to date")
+                    return True
+
+                self._log_cache(f"Library changed (cached: {cache.get_library_version()}, "
+                               f"current: {current_version})")
+                # For now, just note that sync is needed
+                # Full delta sync implementation would fetch only changed items
+                # using ?since=VERSION parameter
+                self._log_cache("Delta sync: fetching changes...")
+
+                # Simple approach: re-sync the collection
+                # A more sophisticated approach would use the Zotero sync API
+                return self.sync_collection(collection_key, force=False, sync_attachments=False)
+
+        except Exception as e:
+            self._log_cache(f"Delta sync check failed: {e}")
+            return True  # Continue with cached data
+
+        return True
+
+    def get_cache_status(self, collection_key: str) -> Optional[Dict]:
+        """Get cache status for a collection."""
+        cache = self._get_cache(collection_key)
+        if not cache:
+            return None
+        return cache.get_stats()
+
+    def clear_cache(self, collection_key: str):
+        """Clear cache for a collection."""
+        cache = self._get_cache(collection_key)
+        if cache:
+            cache.clear_all()
+            print(f"Cache cleared for collection {collection_key}")
 
     def list_collections(self) -> List[Dict]:
         """
@@ -81,12 +364,32 @@ class ZoteroBaseProcessor:
         Returns:
             List of top-level items in the collection (no attachments/notes)
         """
+        # Check cache first
+        cache = self._get_cache(collection_key)
+        if cache:
+            cached_items = cache.get_collection_items(collection_key)
+            if cached_items is not None:
+                self._log_cache(f"Cache hit: {len(cached_items)} items from collection {collection_key}")
+                return cached_items
+            elif self.offline:
+                print(f"Error: Collection {collection_key} not in cache (offline mode)")
+                return []
+
+        if self.offline:
+            print(f"Error: Cache not available for collection {collection_key} (offline mode)")
+            return []
+
         print(f"Fetching top-level items from collection {collection_key}...")
         try:
             # Use collection_items_top to only get parent items, not child attachments/notes
             # Use everything() to handle pagination and fetch all items (no 100-item limit)
-            items = self.zot.everything(self.zot.collection_items_top(collection_key))
+            items = list(self.zot.everything(self.zot.collection_items_top(collection_key)))
             print(f"Found {len(items)} top-level items in collection")
+
+            # Store in cache
+            if cache:
+                cache.store_items(items, collection_key)
+
             return items
         except Exception as e:
             print(f"Error fetching collection items: {e}")
@@ -97,17 +400,47 @@ class ZoteroBaseProcessor:
             print("\nTip: Run with --list-collections to see available collections")
             return []
 
-    def get_item_children(self, item_key: str) -> List[Dict]:
+    def get_item_children(self, item_key: str, collection_key: Optional[str] = None) -> List[Dict]:
         """
         Get all child items for a specific parent item.
 
         Args:
             item_key: The key of the parent item
+            collection_key: Optional collection key for cache lookup
 
         Returns:
             List of all child items (attachments and notes)
         """
-        return self.zot.children(item_key)
+        # Check cache first (need collection_key to get the right cache)
+        # Try all active caches if collection_key not provided
+        caches_to_check = []
+        if collection_key:
+            cache = self._get_cache(collection_key)
+            if cache:
+                caches_to_check = [cache]
+        else:
+            caches_to_check = list(self._caches.values())
+
+        for cache in caches_to_check:
+            cached_children = cache.get_item_children(item_key)
+            if cached_children is not None:
+                self._log_cache(f"Cache hit: {len(cached_children)} children for item {item_key}")
+                return cached_children
+
+        if self.offline:
+            self._log_cache(f"Cache miss for item {item_key} children (offline mode)")
+            return []
+
+        # Fetch from API
+        children = self.zot.children(item_key)
+
+        # Store in cache if we have a collection context
+        if collection_key:
+            cache = self._get_cache(collection_key)
+            if cache:
+                cache.store_children(children, item_key)
+
+        return children
 
     def get_item_attachments(self, item_key: str) -> List[Dict]:
         """
@@ -226,20 +559,54 @@ class ZoteroBaseProcessor:
                                  'application/msword'] or
                 filename.lower().endswith(('.docx', '.doc')))
 
-    def download_attachment(self, attachment_key: str) -> Optional[bytes]:
+    def download_attachment(
+        self,
+        attachment_key: str,
+        collection_key: Optional[str] = None,
+        attachment_data: Optional[Dict] = None
+    ) -> Optional[bytes]:
         """
-        Download an attachment file from Zotero.
+        Download an attachment file from Zotero (or cache).
 
         Args:
             attachment_key: The key of the attachment
+            collection_key: Optional collection key for cache lookup
+            attachment_data: Optional attachment metadata for caching
 
         Returns:
             File content as bytes, or None if download fails
         """
+        # Check cache first
+        caches_to_check = []
+        if collection_key:
+            cache = self._get_cache(collection_key)
+            if cache:
+                caches_to_check = [cache]
+        else:
+            caches_to_check = list(self._caches.values())
+
+        for cache in caches_to_check:
+            cached_content = cache.get_attachment_file(attachment_key)
+            if cached_content is not None:
+                self._log_cache(f"Cache hit: attachment {attachment_key}")
+                return cached_content
+
+        if self.offline:
+            self._log_cache(f"Cache miss for attachment {attachment_key} (offline mode)")
+            return None
+
+        # Fetch from API
         try:
             if self.verbose:
                 print(f"  📥 Downloading attachment from Zotero...")
             file_content = self.zot.file(attachment_key)
+
+            # Store in cache
+            if collection_key and attachment_data:
+                cache = self._get_cache(collection_key)
+                if cache:
+                    cache.store_attachment_file(attachment_key, file_content, attachment_data)
+
             return file_content
         except Exception as e:
             print(f"  ❌ Error downloading attachment: {e}")
@@ -295,18 +662,28 @@ class ZoteroBaseProcessor:
 
         return None
 
-    def delete_note_with_prefix(self, item_key: str, prefix: str) -> bool:
+    def delete_note_with_prefix(
+        self,
+        item_key: str,
+        prefix: str,
+        collection_key: Optional[str] = None
+    ) -> bool:
         """
         Delete a note starting with a specific prefix.
 
         Args:
             item_key: The key of the parent item
             prefix: The prefix to search for (e.g., "AI Summary:", "Markdown Extract:")
+            collection_key: Optional collection key for cache invalidation
 
         Returns:
             True if note was found and deleted
         """
-        children = self.get_item_children(item_key)
+        if self.offline:
+            print("  ❌ Cannot delete note in offline mode")
+            return False
+
+        children = self.get_item_children(item_key, collection_key)
         notes = [child for child in children if child['data'].get('itemType') == 'note']
 
         for note in notes:
@@ -316,6 +693,13 @@ class ZoteroBaseProcessor:
             if html_prefix in note_content[:200]:  # Check first 200 chars for the heading
                 try:
                     self.zot.delete_item(note)
+
+                    # Invalidate cache
+                    if collection_key:
+                        cache = self._get_cache(collection_key)
+                        if cache:
+                            cache.invalidate_child(note['key'])
+
                     return True
                 except Exception as e:
                     if self.verbose:
@@ -351,7 +735,8 @@ class ZoteroBaseProcessor:
         parent_key: str,
         content: str,
         title: str,
-        convert_markdown: bool = True
+        convert_markdown: bool = True,
+        collection_key: Optional[str] = None
     ) -> bool:
         """
         Create a note in Zotero attached to a parent item.
@@ -361,10 +746,15 @@ class ZoteroBaseProcessor:
             content: The content for the note (markdown or HTML)
             title: Title to prepend to the note
             convert_markdown: If True, convert markdown to HTML
+            collection_key: Optional collection key for cache invalidation
 
         Returns:
             True if note was created successfully
         """
+        if self.offline:
+            print("  ❌ Cannot create note in offline mode")
+            return False
+
         try:
             # Prepend title
             full_content = f"# {title}\n\n{content}"
@@ -383,6 +773,14 @@ class ZoteroBaseProcessor:
 
             if result['success']:
                 print(f"  ✅ Note created successfully")
+
+                # Invalidate cache for parent's children and store new note
+                if collection_key:
+                    cache = self._get_cache(collection_key)
+                    if cache:
+                        # Invalidate children cache so next read gets fresh data
+                        cache.invalidate_children_for_parent(parent_key)
+
                 return True
             else:
                 print(f"  ❌ Failed to create note: {result}")
@@ -402,10 +800,29 @@ class ZoteroBaseProcessor:
         Returns:
             Subcollection key or None if not found
         """
+        # Check cache first
+        cache = self._get_cache(parent_collection_key)
+        if cache:
+            subcollections = cache.get_subcollections(parent_collection_key)
+            for coll in subcollections:
+                if coll['data']['name'] == subcollection_name:
+                    self._log_cache(f"Cache hit: subcollection {subcollection_name}")
+                    return coll['key']
+            # If cache exists but subcollection not found, might be not synced
+            # Fall through to API if not offline
+            if self.offline:
+                return None
+
+        if self.offline:
+            return None
+
         try:
             collections = self.zot.collections_sub(parent_collection_key)
             for coll in collections:
                 if coll['data']['name'] == subcollection_name:
+                    # Store in cache
+                    if cache:
+                        cache.store_collection(coll)
                     return coll['key']
             return None
         except Exception as e:
@@ -423,6 +840,10 @@ class ZoteroBaseProcessor:
         Returns:
             Key of created subcollection or None if creation fails
         """
+        if self.offline:
+            print("  ❌ Cannot create subcollection in offline mode")
+            return None
+
         try:
             # Check if already exists
             existing_key = self.get_subcollection(parent_collection_key, subcollection_name)
@@ -438,7 +859,23 @@ class ZoteroBaseProcessor:
             result = self.zot.create_collections([collection_data])
 
             if result['successful']:
-                return result['successful']['0']['key']
+                new_key = result['successful']['0']['key']
+
+                # Store in cache
+                cache = self._get_cache(parent_collection_key)
+                if cache:
+                    # Construct collection object to store
+                    new_collection = {
+                        'key': new_key,
+                        'data': {
+                            'name': subcollection_name,
+                            'parentCollection': parent_collection_key
+                        },
+                        'version': result['successful']['0'].get('version')
+                    }
+                    cache.store_collection(new_collection)
+
+                return new_key
             else:
                 print(f"  ❌ Failed to create subcollection: {result}")
                 return None
@@ -467,6 +904,10 @@ class ZoteroBaseProcessor:
         Returns:
             Item key of created note or None if creation fails
         """
+        if self.offline:
+            print("  ❌ Cannot create standalone note in offline mode")
+            return None
+
         try:
             # Prepend title
             full_content = f"# {title}\n\n{content}"

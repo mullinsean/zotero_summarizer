@@ -272,6 +272,53 @@ uv run python -m src.zresearcher --export-summaries \
 - Create input for further analysis or LLM processing
 - Generate documents for reading or printing
 
+**ZoteroResearcher - Local Cache (Experimental)**
+
+Local caching reduces API calls and enables offline operation. Cache is stored in `~/.zotero_summarizer/cache/`.
+
+```bash
+# Sync collection to local cache (downloads items, children, attachments)
+uv run python -m src.zresearcher --sync --collection COLLECTION_KEY
+
+# Force full re-sync (ignore existing cache)
+uv run python -m src.zresearcher --sync --collection COLLECTION_KEY --force
+
+# Check cache status for a collection
+uv run python -m src.zresearcher --cache-status --collection COLLECTION_KEY
+
+# Clear cache for a collection
+uv run python -m src.zresearcher --clear-cache --collection COLLECTION_KEY
+
+# Run workflow offline using cached data (requires prior --sync)
+uv run python -m src.zresearcher --query-summary \
+    --collection COLLECTION_KEY --project "My Project" \
+    --enable-cache --offline
+```
+
+**Cache Features:**
+- **SQLite-based storage**: Metadata, items, children stored in SQLite database per collection
+- **Attachment caching**: PDF, HTML, TXT files downloaded during sync
+- **Subcollection support**: Syncing parent collection includes all subcollections
+- **Delta sync**: On workflow start, checks for changes and syncs incrementally
+- **Offline mode**: `--offline` flag uses only cached data (no API calls)
+- **Write-through**: Write operations update both API and cache
+
+**Cache Location:**
+```
+~/.zotero_summarizer/
+└── cache/
+    ├── {library_id}_{collection_key}.db    # SQLite database
+    └── attachments/
+        ├── {attachment_key}.pdf            # Cached files
+        └── {attachment_key}.html
+```
+
+**Use Cases:**
+- Reduce API calls for frequently-accessed collections
+- Work offline (e.g., on airplane, poor connectivity)
+- Speed up repetitive operations (eliminates redundant API calls)
+- Future: Vector database integration for RAG queries
+
 **Diagnostic Utility**
 ```bash
 # Run diagnostic utility for troubleshooting
@@ -311,7 +358,8 @@ src/
 ├── zr_export.py (~520 lines)           # Export: NotebookLM format & summary export
 ├── zr_llm_client.py                    # Centralized LLM API client
 ├── zr_prompts.py                       # Prompt templates
-└── zotero_base.py                      # Base Zotero API functionality
+├── zotero_base.py                      # Base Zotero API functionality
+└── zotero_cache.py (~600 lines)        # Local SQLite cache layer
 ```
 
 **Module Responsibilities:**
@@ -691,6 +739,42 @@ The `ZoteroBaseProcessor` class provides shared functionality for all processors
 **Used by:**
 - `ZoteroResearcherBase` (zr_common.py) - Base class for all ZoteroResearcher modules
 - `ZoteroSourceSummarizer` (old/summarize_sources.py) - Legacy, deprecated
+
+### Cache Module: `src/zotero_cache.py`
+
+The `ZoteroCache` class provides local SQLite-based caching for Zotero data:
+
+**Storage:**
+- SQLite database per library+collection: `{library_id}_{collection_key}.db`
+- Attachment files stored in shared filesystem: `~/.zotero_summarizer/cache/attachments/`
+- In-memory session cache for frequently accessed data
+
+**Read Operations (cache-first):**
+- `get_collections()` / `get_collection()` / `get_subcollections()` - Collection data
+- `get_collection_items()` - Items in a collection
+- `get_item_children()` - Notes and attachments for an item
+- `get_attachment_file()` - Attachment file content
+
+**Write Operations (store after API success):**
+- `store_collection()` / `store_collections()` - Cache collection metadata
+- `store_item()` / `store_items()` - Cache items with collection membership
+- `store_child()` / `store_children()` - Cache notes and attachments
+- `store_attachment_file()` - Cache attachment file content
+
+**Sync State:**
+- `get_library_version()` / `set_library_version()` - Track library version for delta sync
+- `is_synced()` / `needs_sync()` - Check if cache needs updating
+- `get_last_sync_time()` / `set_last_sync_time()` - Track sync timestamps
+
+**Invalidation:**
+- `invalidate_item()` - Remove item and its children from cache
+- `invalidate_child()` - Remove specific child (note/attachment)
+- `invalidate_children_for_parent()` - Remove all children for a parent
+- `clear_all()` - Clear entire cache for collection
+
+**Statistics:**
+- `get_stats()` - Get cache statistics (counts, sizes)
+- `print_stats()` - Print formatted cache status
 
 ### Data Flow (ZoteroResearcher)
 

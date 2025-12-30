@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 # Handle both relative and absolute imports
 try:
+    from .zotero_base import ZoteroBaseProcessor
     from .zr_common import validate_project_name
     from .zr_init import ZoteroResearcherInit
     from .zr_build import ZoteroResearcherBuilder
@@ -24,6 +25,7 @@ try:
     from .zr_cleanup import ZoteroResearcherCleaner
     from .zr_export import ZoteroNotebookLMExporter
 except ImportError:
+    from zotero_base import ZoteroBaseProcessor
     from zr_common import validate_project_name
     from zr_init import ZoteroResearcherInit
     from zr_build import ZoteroResearcherBuilder
@@ -91,6 +93,21 @@ Examples:
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --output-file ./my_summaries.md
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files --output-file ./summaries_dir
+
+  # Cache: Sync collection to local cache (required before offline use)
+  python zresearcher.py --sync --collection KEY
+
+  # Cache: Force full re-sync (ignore existing cache)
+  python zresearcher.py --sync --collection KEY --force
+
+  # Cache: Check cache status
+  python zresearcher.py --cache-status --collection KEY
+
+  # Cache: Clear cache for a collection
+  python zresearcher.py --clear-cache --collection KEY
+
+  # Cache: Run query offline using cached data
+  python zresearcher.py --query-summary --collection KEY --project "AI Productivity" --offline --enable-cache
         """
     )
 
@@ -155,6 +172,23 @@ Examples:
         '--export-summaries',
         action='store_true',
         help='Export all ZResearcher summary notes for a project to a single markdown file'
+    )
+
+    # Cache management commands
+    mode_group.add_argument(
+        '--sync',
+        action='store_true',
+        help='Sync collection to local cache (downloads items, children, and attachments)'
+    )
+    mode_group.add_argument(
+        '--cache-status',
+        action='store_true',
+        help='Show cache status for a collection'
+    )
+    mode_group.add_argument(
+        '--clear-cache',
+        action='store_true',
+        help='Clear local cache for a collection'
     )
 
     # Common arguments
@@ -223,6 +257,18 @@ Examples:
         '--separate-files',
         action='store_true',
         help='[Export Summaries] Export each summary as a separate .md file instead of one consolidated file'
+    )
+
+    # Cache arguments
+    parser.add_argument(
+        '--enable-cache',
+        action='store_true',
+        help='Enable local caching for faster operations (reduces API calls)'
+    )
+    parser.add_argument(
+        '--offline',
+        action='store_true',
+        help='Work offline using only cached data (requires prior --sync)'
     )
 
     args = parser.parse_args()
@@ -299,6 +345,68 @@ Examples:
             verbose=args.verbose
         )
         temp_researcher.print_collections()
+        return
+
+    # Handle --sync flag (sync collection to local cache)
+    if args.sync:
+        if not collection_key:
+            print("Error: --collection required for --sync")
+            print("Example: python zresearcher.py --sync --collection ABC123")
+            return
+
+        processor = ZoteroBaseProcessor(
+            library_id,
+            library_type,
+            zotero_api_key,
+            verbose=args.verbose,
+            enable_cache=True
+        )
+        success = processor.sync_collection(collection_key, force=args.force)
+        if success:
+            print("\nSync completed successfully!")
+        else:
+            print("\nSync failed. Check the errors above.")
+        return
+
+    # Handle --cache-status flag
+    if args.cache_status:
+        if not collection_key:
+            print("Error: --collection required for --cache-status")
+            print("Example: python zresearcher.py --cache-status --collection ABC123")
+            return
+
+        processor = ZoteroBaseProcessor(
+            library_id,
+            library_type,
+            zotero_api_key,
+            verbose=args.verbose,
+            enable_cache=True
+        )
+        stats = processor.get_cache_status(collection_key)
+        if stats:
+            cache = processor._get_cache(collection_key)
+            if cache:
+                cache.print_stats()
+        else:
+            print(f"No cache found for collection {collection_key}")
+            print("Run --sync first to create the cache.")
+        return
+
+    # Handle --clear-cache flag
+    if args.clear_cache:
+        if not collection_key:
+            print("Error: --collection required for --clear-cache")
+            print("Example: python zresearcher.py --clear-cache --collection ABC123")
+            return
+
+        processor = ZoteroBaseProcessor(
+            library_id,
+            library_type,
+            zotero_api_key,
+            verbose=args.verbose,
+            enable_cache=True
+        )
+        processor.clear_cache(collection_key)
         return
 
     # Handle --list-projects flag

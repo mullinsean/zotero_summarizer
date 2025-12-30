@@ -23,3 +23,6 @@ build/
 
 # Output directories
 pdf_extracts/
+
+# Zotero local cache (stored in ~/.zotero_summarizer/cache/ by default)
+.zotero_cache/
