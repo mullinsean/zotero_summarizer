@@ -703,10 +703,8 @@ Respond with ONLY the title, no quotes or explanation:"""
 
     def _get_project_subcollection_key(self, collection_key: str) -> str:
         """Get the project subcollection key."""
-        subcoll = self.get_subcollection(
-            collection_key,
-            f"ZResearcher: {self.project_name}"
-        )
+        subcollection_name = self._get_subcollection_name()
+        subcoll = self.get_subcollection(collection_key, subcollection_name)
         if subcoll:
             return subcoll['key']
         return collection_key
