@@ -6,941 +6,145 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Zotero Summarizer** is a Python tool suite for working with Zotero libraries via the Zotero API.
 
-The primary tool is **ZoteroResearcher** (`zresearcher.py`), a sophisticated research assistant that analyzes sources based on a research brief, ranks them by relevance, and generates targeted summaries with key quotes and statistics. It uses a two-phase workflow with project-based organization:
+The primary tool is **ZoteroResearcher** (`zresearcher.py`), a research assistant that analyzes sources based on a research brief, ranks them by relevance, and generates targeted summaries. It uses a three-phase workflow:
 
-- **Phase 1 (Build)**: Generate project-aware summaries with metadata and tags for all sources
-- **Phase 2 (Query)**: Evaluate relevance against a research brief and generate targeted summaries
-- **Phase 3 (Synthesis)**: Automatically generate a meta-analysis synthesis of the research findings (optional, enabled by default)
+- **Phase 1 (Build)**: Generate project-aware summaries with metadata and tags
+- **Phase 2 (Query)**: Evaluate relevance and generate targeted summaries with HTML reports
+- **Phase 3 (Synthesis)**: Auto-generate meta-analysis synthesis (optional, enabled by default)
 
-The tool supports a **Zotero-native workflow** where all configuration and outputs are stored in Zotero (recommended).
+The tool supports a **Zotero-native workflow** where configuration and outputs are stored in Zotero.
 
-**Legacy tools** (now deprecated, moved to `/old/`):
-- `extract_html.py` - Simple HTML-to-Markdown extraction (superseded by ZoteroResearcher)
-- `summarize_sources.py` - Basic source summarization (superseded by ZoteroResearcher)
+## Detailed Documentation
+
+| Document | Description |
+|----------|-------------|
+| [CLI Commands](docs/claude/commands.md) | Full command reference with examples |
+| [Workflows](docs/claude/workflows.md) | Phase 1/2/3 details, data flow, Zotero-native workflow |
+| [Content Extraction](docs/claude/content-extraction.md) | Trafilatura, PDF, URL extraction pipelines |
+| [Implementation Details](docs/claude/implementation-details.md) | Edge cases, rate limiting, gotchas |
+| [Module Architecture](src/CLAUDE.md) | Detailed module responsibilities and APIs |
 
 ## Package Manager
 
-**This project uses `uv` for Python package management.** All commands should be run with `uv run` to ensure proper dependency resolution.
+**This project uses `uv` for Python package management.** All commands should be run with `uv run`.
 
-## Common Commands
+## Development Setup
 
-### Development Setup
 ```bash
-# Create and activate virtual environment
 uv venv
 source .venv/bin/activate
-
-# Install dependencies
 uv pip install -r requirements.txt
 ```
 
-### Running the Application
+## Quick Start Commands
 
-**ZoteroResearcher - Primary Tool**
 ```bash
-# Step 0: List collections
+# List collections
 uv run python -m src.zresearcher --list-collections
 
-# Step 1: Initialize a project in a collection (creates template notes in Zotero)
+# Initialize a project
 uv run python -m src.zresearcher --init-collection \
-    --collection COLLECTION_KEY --project "My Research Project"
+    --collection COLLECTION_KEY --project "My Project"
 
-# Step 2: List existing projects in a collection
-uv run python -m src.zresearcher --list-projects --collection COLLECTION_KEY
-
-# Step 3: (Optional) Organize sources to ensure all items have acceptable attachments
-uv run python -m src.zresearcher --organize-sources --collection COLLECTION_KEY
-
-# Step 4: Edit the template notes in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
-#   - 【Project Overview: PROJECT】 (describe your research project)
-#   - 【Research Tags: PROJECT】 (one tag per line)
-#   - 【Research Brief: PROJECT】 (your research question)
-#   - 【Project Config: PROJECT】 (optional: tune performance & LLM settings)
-
-# Step 5: Build general summaries (Phase 1 - loads config from Zotero)
+# Build summaries (Phase 1)
 uv run python -m src.zresearcher --build-summaries \
-    --collection COLLECTION_KEY --project "My Research Project"
+    --collection COLLECTION_KEY --project "My Project"
 
-# Rebuild existing summaries (force mode)
-uv run python -m src.zresearcher --build-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" --force
-
-# Step 6: Run query (Phase 2 - loads brief from Zotero, stores report as note)
+# Run query (Phase 2 + Phase 3)
 uv run python -m src.zresearcher --query-summary \
-    --collection COLLECTION_KEY --project "My Research Project"
-
-# Verbose mode for detailed logging
-uv run python -m src.zresearcher --query-summary \
-    --collection COLLECTION_KEY --project "My Research Project" --verbose
+    --collection COLLECTION_KEY --project "My Project"
 ```
 
-**ZoteroResearcher - File Search (Google Gemini RAG)**
-```bash
-# Step 1: Upload files to Gemini file search store
-uv run python -m src.zresearcher --upload-files \
-    --collection COLLECTION_KEY --project "My Research Project"
+For full command reference, see [docs/claude/commands.md](docs/claude/commands.md).
 
-# Force re-upload of all files (deletes existing file search store and re-uploads)
-uv run python -m src.zresearcher --upload-files \
-    --collection COLLECTION_KEY --project "My Research Project" --force
+## File Structure
 
-# Step 2: Edit the Query Request note in Zotero (in the 【ZResearcher: PROJECT】 subcollection):
-#   - 【Query Request】 (your File Search query)
-
-# Step 3: Run File Search query (requires files to be uploaded first)
-uv run python -m src.zresearcher --file-search \
-    --collection COLLECTION_KEY --project "My Research Project"
-
-# Verbose mode for detailed logging
-uv run python -m src.zresearcher --file-search \
-    --collection COLLECTION_KEY --project "My Research Project" --verbose
-```
-
-**Implementation Details:**
-- Uses Google Gemini File Search Stores for efficient RAG querying
-- Two-stage workflow: upload files first (--upload-files), then run queries (--file-search)
-- Files are uploaded to a dedicated file search store (not passed in context)
-- Store is used as a tool during generation, avoiding context window limits
-- Supports large collections (tested with 70+ files)
-- Incremental uploads: only new files are uploaded on subsequent --upload-files runs
-- Automatically detects and warns about new files not yet uploaded
-- Automatically extracts and displays grounding sources
-- LLM-generated report titles based on query request (format: "File Search Report: {title}")
-- Store name and upload state tracked in Project Config note
-
-**ZoteroResearcher - Subcollection Filtering**
-
-All workflows support optional subcollection filtering to process only items in specific subcollections:
-
-```bash
-# Process only items in specific subcollections (comma-separated names)
-uv run python -m src.zresearcher --organize-sources \
-    --collection COLLECTION_KEY --subcollections "Research Papers,Reports"
-
-uv run python -m src.zresearcher --build-summaries \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections "Research Papers,Reports"
-
-uv run python -m src.zresearcher --query-summary \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections "Research Papers"
-
-# Process all subcollections (excludes main collection items)
-uv run python -m src.zresearcher --build-summaries \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections all
-
-# Include main collection items along with subcollections
-uv run python -m src.zresearcher --build-summaries \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections "Research Papers" --include-main
-
-# File Search with subcollection filtering
-uv run python -m src.zresearcher --upload-files \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections "Research Papers,Reports"
-
-uv run python -m src.zresearcher --file-search \
-    --collection COLLECTION_KEY --project "My Project" \
-    --subcollections "Research Papers,Reports"
-```
-
-**Subcollection Filtering Behavior:**
-- **No flags**: Process all items in the main collection (default behavior)
-- **`--subcollections "Name1,Name2"`**: Process only items in specified subcollections
-- **`--subcollections all`**: Process items in all subcollections (excluding the ZResearcher project subcollection)
-- **`--include-main`**: Also include items from the main collection when using `--subcollections`
-- The ZResearcher project subcollection (e.g., `【ZResearcher: My Project】`) is always excluded from filtering
-- Subcollection names are case-sensitive and must match exactly
-- Error is shown if a specified subcollection name doesn't exist, with a list of available subcollections
-
-**ZoteroResearcher - Cleanup**
-```bash
-# Preview cleanup for a specific project (dry-run mode - no changes made)
-uv run python -m src.zresearcher --cleanup-project \
-    --collection COLLECTION_KEY --project "My Research Project" --dry-run
-
-# Clean up a specific project (deletes subcollection and all summary notes)
-uv run python -m src.zresearcher --cleanup-project \
-    --collection COLLECTION_KEY --project "My Research Project"
-
-# Skip confirmation prompt (useful for scripts)
-uv run python -m src.zresearcher --cleanup-project \
-    --collection COLLECTION_KEY --project "My Research Project" --yes
-
-# Preview cleanup for ALL projects in a collection (dry-run mode)
-uv run python -m src.zresearcher --cleanup-collection \
-    --collection COLLECTION_KEY --dry-run
-
-# Clean up ALL projects in a collection (use with caution!)
-uv run python -m src.zresearcher --cleanup-collection \
-    --collection COLLECTION_KEY --yes
-
-# Verbose mode shows detailed error messages
-uv run python -m src.zresearcher --cleanup-project \
-    --collection COLLECTION_KEY --project "My Research Project" --verbose
-```
-
-**ZoteroResearcher - Export to NotebookLM**
-
-Export collection to NotebookLM format by extracting PDFs, text files, and converting HTML to Markdown:
-
-```bash
-# Export entire collection to NotebookLM format
-uv run python -m src.zresearcher --export-to-notebooklm \
-    --collection COLLECTION_KEY --output-dir ./notebooklm_export
-
-# Export with custom output directory
-uv run python -m src.zresearcher --export-to-notebooklm \
-    --collection COLLECTION_KEY --output-dir ~/Documents/NotebookLM
-
-# Export only specific subcollections
-uv run python -m src.zresearcher --export-to-notebooklm \
-    --collection COLLECTION_KEY --subcollections "Research Papers,Reports" \
-    --output-dir ./notebooklm_export
-
-# Verbose mode for detailed logging
-uv run python -m src.zresearcher --export-to-notebooklm \
-    --collection COLLECTION_KEY --verbose
-```
-
-**Export Behavior:**
-- **PDFs**: Copied as-is to output directory
-- **Text files (.txt)**: Copied as-is to output directory
-- **HTML snapshots**: Converted to Markdown using Trafilatura and saved as .md files
-- Filenames are sanitized and made unique using item titles and attachment keys
-- Supports subcollection filtering (same as other workflows)
-- No project name required (standalone operation)
-- Default output directory: `./notebooklm_export`
-
-**Use Cases:**
-- Prepare sources for NotebookLM analysis without summarization
-- Quick export of all source documents in NotebookLM-compatible format
-- Export specific subcollections for focused analysis
-- Backup source documents in a portable format
-
-**ZoteroResearcher - Export Summaries to Markdown**
-
-Export all ZResearcher summary notes for a project as either a single consolidated file or separate files:
-
-```bash
-# Export all summary notes to single consolidated file (default: ./zresearcher_summaries_{project}.md)
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project"
-
-# Export with custom output file path
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" \
-    --output-file ./my_summaries.md
-
-# Export as separate .md files in a directory (default: ./zresearcher_summaries_{project}/)
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" \
-    --separate-files
-
-# Export as separate files with custom directory path
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" \
-    --separate-files --output-file ./summaries_directory
-
-# Export only summaries from specific subcollections
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" \
-    --subcollections "Research Papers,Reports"
-
-# Verbose mode for detailed logging
-uv run python -m src.zresearcher --export-summaries \
-    --collection COLLECTION_KEY --project "My Research Project" --verbose
-```
-
-**Export Behavior:**
-- Finds all items in the collection with "【ZResearcher Summary: PROJECT】" notes (created by --build-summaries)
-- Extracts the content from each summary note (Metadata, Tags, Summary sections)
-- **Consolidated mode (default)**: Appends all summaries into a single markdown file with headers for each item
-- **Separate files mode (--separate-files)**: Creates individual .md files for each summary in a directory
-  - Filenames: `001_Item_Title.md`, `002_Item_Title.md`, etc.
-  - Files are numbered and include sanitized item titles
-- Supports subcollection filtering (same as other workflows)
-- Requires project name to identify which summaries to export
-- Default output:
-  - Consolidated: `./zresearcher_summaries_{project}.md`
-  - Separate files: `./zresearcher_summaries_{project}/`
-
-**Use Cases:**
-- **Consolidated file**: Create a single reference document, share with collaborators, archive summaries
-- **Separate files**: Individual review/editing, version control friendly, focused analysis per source
-- Create input for further analysis or LLM processing
-- Generate documents for reading or printing
-
-**ZoteroResearcher - Local Cache (Experimental)**
-
-Local caching reduces API calls and enables offline operation. Cache is stored in `~/.zotero_summarizer/cache/`.
-
-```bash
-# Sync collection to local cache (downloads items, children, attachments)
-uv run python -m src.zresearcher --sync --collection COLLECTION_KEY
-
-# Force full re-sync (ignore existing cache)
-uv run python -m src.zresearcher --sync --collection COLLECTION_KEY --force
-
-# Check cache status for a collection
-uv run python -m src.zresearcher --cache-status --collection COLLECTION_KEY
-
-# Clear cache for a collection
-uv run python -m src.zresearcher --clear-cache --collection COLLECTION_KEY
-
-# Run workflow offline using cached data (requires prior --sync)
-uv run python -m src.zresearcher --query-summary \
-    --collection COLLECTION_KEY --project "My Project" \
-    --enable-cache --offline
-```
-
-**Cache Features:**
-- **SQLite-based storage**: Metadata, items, children stored in SQLite database per collection
-- **Attachment caching**: PDF, HTML, TXT files downloaded during sync
-- **Subcollection support**: Syncing parent collection includes all subcollections
-- **Delta sync**: On workflow start, checks for changes and syncs incrementally
-- **Offline mode**: `--offline` flag uses only cached data (no API calls)
-- **Write-through**: Write operations update both API and cache
-
-**Cache Location:**
-```
-~/.zotero_summarizer/
-└── cache/
-    ├── {library_id}_{collection_key}.db    # SQLite database
-    └── attachments/
-        ├── {attachment_key}.pdf            # Cached files
-        └── {attachment_key}.html
-```
-
-**Use Cases:**
-- Reduce API calls for frequently-accessed collections
-- Work offline (e.g., on airplane, poor connectivity)
-- Speed up repetitive operations (eliminates redundant API calls)
-- Future: Vector database integration for RAG queries
-
-**Diagnostic Utility**
-```bash
-# Run diagnostic utility for troubleshooting
-uv run python -m src.zotero_diagnose --user
-uv run python -m src.zotero_diagnose --group GROUP_ID
-```
-
-**Legacy Tools** (deprecated, see `/old/` directory):
-```bash
-# extract_html.py and summarize_sources.py have been superseded by zresearcher.py
-# These files are preserved in /old/ for reference only
-```
-
-### Linting & Code Quality
-No linting tools currently configured. Future setup should include tools like `black`, `ruff`, or `pylint`.
-
-### Testing
-No test framework currently configured. Tests should be added in `/tests/` directory using `pytest` or `unittest`.
-
-## Code Architecture
-
-### ZoteroResearcher Modular Architecture
-
-**As of the major refactoring**, `zresearcher.py` has been split into a modular architecture for better maintainability:
-
-**File Structure:**
 ```
 src/
-├── zresearcher.py (~530 lines)         # CLI entry point & routing
-├── zr_common.py (~760 lines)           # Base class & shared utilities
-├── zr_init.py (~290 lines)             # Collection initialization workflow
-├── zr_organize_sources.py (~350 lines) # Source organization workflow
-├── zr_build.py (~440 lines)            # Phase 1: Build summaries workflow
-├── zr_query.py (~990 lines)            # Phase 2: Query & report generation workflow
-├── zr_file_search.py (~450 lines)      # File Search: Gemini RAG integration
-├── zr_cleanup.py (~530 lines)          # Cleanup: Delete projects & summary notes
-├── zr_export.py (~520 lines)           # Export: NotebookLM format & summary export
-├── zr_llm_client.py                    # Centralized LLM API client
-├── zr_prompts.py                       # Prompt templates
-├── zotero_base.py                      # Base Zotero API functionality
-└── zotero_cache.py (~600 lines)        # Local SQLite cache layer
+├── zresearcher.py          # CLI entry point & routing
+├── zr_common.py            # Base class & shared utilities
+├── zr_init.py              # Collection initialization
+├── zr_organize_sources.py  # Source organization
+├── zr_build.py             # Phase 1: Build summaries
+├── zr_query.py             # Phase 2: Query & reports
+├── zr_file_search.py       # Gemini RAG integration
+├── zr_cleanup.py           # Project cleanup
+├── zr_export.py            # Export workflows
+├── zr_llm_client.py        # LLM API client
+├── zr_prompts.py           # Prompt templates
+├── zotero_base.py          # Base Zotero API
+├── zotero_cache.py         # Local SQLite cache
+├── llm_extractor.py        # Content polishing
+└── zotero_diagnose.py      # Diagnostic utility
 ```
 
-**Module Responsibilities:**
+For detailed module documentation, see [src/CLAUDE.md](src/CLAUDE.md).
 
-**`zresearcher.py`** - CLI Entry Point (91.5% reduction from original 2970 lines)
-- Command-line argument parsing
-- Environment variable loading and validation
-- Routes to appropriate workflow classes
-- No business logic - pure orchestration
+## Environment Variables
 
-**`zr_common.py`** - Base Class & Shared Utilities
-- `ZoteroResearcherBase` class (inherits from `ZoteroBaseProcessor`)
-  - Initialization & configuration management
-  - `extract_metadata()` - Extract metadata from Zotero API
-  - `get_source_content()` - Unified content retrieval (HTML/PDF/URL priority)
-  - `extract_text_from_html()` - Trafilatura-based HTML extraction
-  - `extract_text_from_pdf()` - PyMuPDF-based PDF extraction
-  - `load_project_config_from_zotero()` - Load config from Zotero notes
-  - `apply_project_config()` - Apply and validate configuration
-  - All `_get_*_note_title()` helper methods
-- `validate_project_name()` - Utility function for name validation
-
-**`zr_init.py`** - Collection Initialization
-- `ZoteroResearcherInit` class (inherits from `ZoteroResearcherBase`)
-  - `init_collection()` - Create project subcollection & template notes
-  - `list_projects()` - List existing projects in a collection
-
-**`zr_organize_sources.py`** - Source Organization (Optional Workflow)
-- `ZoteroResearcherOrganizer` class (inherits from `ZoteroResearcherBase`)
-  - `organize_sources()` - Ensure all items have acceptable attachments (HTML/PDF/TXT)
-  - `is_txt_attachment()` - Check if attachment is a text file
-  - `has_acceptable_attachment()` - Verify item has processable attachment
-  - `promote_attachment_to_parent()` - Convert standalone attachments to proper items
-  - `save_webpage_snapshot()` - Fetch and save webpage HTML snapshots
-  - Run after `init_collection` but before `build_summaries`
-
-**`zr_build.py`** - Phase 1 Workflow
-- `ZoteroResearcherBuilder` class (inherits from `ZoteroResearcherBase`)
-  - `build_general_summaries()` - Main Phase 1 orchestration with parallel LLM processing
-  - `load_project_overview_from_zotero()` - Load project context
-  - `load_tags_from_zotero()` - Load tag taxonomy
-  - `has_general_summary()` - Check for existing summaries
-  - `format_general_summary_note()` - Create structured note format
-
-**`zr_query.py`** - Phase 2 Workflow
-- `ZoteroResearcherQuerier` class (inherits from `ZoteroResearcherBase`)
-  - `run_query_summary()` - Main Phase 2 orchestration with parallel processing
-  - `load_research_brief_from_zotero()` - Load research question
-  - `parse_general_summary_note()` - Parse structured summaries
-  - `rank_sources()` - Sort by relevance score
-  - `generate_report_title()` - LLM-generated report titles
-  - `_compile_research_html_string()` - HTML report generation
-  - Smart storage: Notes <1MB, files >1MB with stub notes
-
-**`zr_file_search.py`** - File Search Workflow (Google Gemini RAG)
-- `ZoteroFileSearcher` class (inherits from `ZoteroResearcherBase`)
-  - **Stage 1: Upload Files (`upload_files_to_gemini()`)**
-    - Upload collection files to Gemini file search store
-    - Create or reuse existing file search store
-    - Support incremental uploads (only new files uploaded)
-    - Track uploaded files in Project Config note
-    - Support force rebuild (delete and recreate store)
-  - **Stage 2: Query (`run_file_search()`)**
-    - Verify files have been uploaded (error if not)
-    - Warn about new files not yet uploaded
-    - Query Gemini File Search and save results
-    - Generate LLM-based report title from query request
-    - Create File Search Report notes with grounding sources (format: "File Search Report: {title}")
-  - `load_query_request_from_zotero()` - Load query from Zotero note
-  - `generate_report_title()` - Generate LLM-based title from query request
-  - `_load_gemini_state_from_config()` - Load store name and upload state from Project Config
-  - `_save_gemini_state_to_config()` - Save store name and upload state to Project Config
-  - Uses Google Gemini File Search Stores (genai.Client API)
-  - Files uploaded to dedicated store, used as tool (not in context window)
-  - Supports PDF, HTML, and TXT attachments
-  - Free storage and embedding; $0.15 per 1M tokens for indexing
-  - Avoids context window limits by using file search as a tool
-
-**`zr_cleanup.py`** - Cleanup Workflow (Delete Projects & Summary Notes)
-- `ZoteroResearcherCleaner` class (inherits from `ZoteroResearcherBase`)
-  - `cleanup_project()` - Delete specific project subcollection and summary notes
-  - `cleanup_all_projects()` - Delete ALL ZResearcher data in collection
-  - `is_general_summary_note()` - Identify general summary notes (with optional project filter)
-  - `find_general_summary_notes_for_project()` - Find summaries for specific project (both standalone and child notes)
-  - `find_all_general_summary_notes()` - Find all summary notes in collection (both standalone and child notes)
-  - `find_all_project_subcollections()` - Find all ZResearcher subcollections
-  - `delete_gemini_files_for_project()` - Delete Gemini file search store for project
-  - `count_items_in_collection()` - Count items by type (notes/files/items)
-  - `preview_cleanup()` - Display preview of what will be deleted
-  - `confirm_cleanup()` - Ask user for confirmation
-  - `delete_collection_recursive()` - Delete collection and all contents
-  - Supports dry-run mode (--dry-run) for safe previewing
-  - Supports skip-confirmation mode (--yes) for scripting
-  - Continues cleanup even if individual deletions fail
-  - Reports detailed summary of deleted items and errors
-  - Deletes child summary notes attached to items (created by --build-summaries)
-  - Deletes Gemini file search stores (deletes all files in store)
-
-**`zr_export.py`** - Export Workflow (NotebookLM Format & Summaries)
-- `ZoteroNotebookLMExporter` class (inherits from `ZoteroResearcherBase`)
-  - **NotebookLM Export:**
-    - `export_to_notebooklm()` - Main export orchestration with progress tracking
-    - `_sanitize_filename()` - Clean filenames for filesystem safety
-    - `_get_export_filename()` - Generate unique filenames using item titles and keys
-    - `_export_pdf_attachment()` - Copy PDF files to output directory
-    - `_export_txt_attachment()` - Copy text files to output directory
-    - `_export_html_attachment()` - Convert HTML to Markdown and save as .md files
-    - Supports subcollection filtering (same as other workflows)
-    - No project name required (standalone operation)
-    - Exports to configurable output directory (default: `./notebooklm_export`)
-    - HTML conversion uses Trafilatura for clean Markdown output
-    - Filenames include item title and attachment key for uniqueness
-    - Tracks exported files to avoid duplicates
-    - Provides detailed export statistics (PDFs, TXT, HTML→Markdown counts)
-  - **Summary Export:**
-    - `export_summaries_to_markdown()` - Export all ZResearcher summary notes (consolidated or separate files)
-    - Finds all items with "【ZResearcher Summary: PROJECT】" notes (child notes)
-    - Extracts text content from each summary note
-    - **Consolidated mode**: Appends all summaries with headers into single file
-    - **Separate files mode**: Creates individual .md files (numbered, sanitized filenames)
-    - Supports subcollection filtering (same as other workflows)
-    - Requires project name to identify which summaries to export
-    - Default output: `./zresearcher_summaries_{project}.md` or `./zresearcher_summaries_{project}/`
-    - Provides detailed export statistics (exported, skipped counts)
-
-### Legacy Modules (Deprecated - see `/old/`)
-
-**`old/extract_html.py`** - Simple HTML-to-Markdown extraction (superseded by ZoteroResearcher)
-
-**`old/summarize_sources.py`** - Basic source summarization (superseded by ZoteroResearcher)
-
-### LLM Module: `src/llm_extractor.py`
-
-The `LLMExtractor` class provides AI-powered content polishing:
-
-**Methods:**
-- `__init__()` - Initializes Anthropic client with API key and model selection
-- `polish_markdown()` - **PRIMARY** - Polishes Trafilatura-extracted markdown for better formatting
-- `extract_article_markdown()` - Legacy method for direct HTML extraction (kept for compatibility)
-- `preprocess_html()` - Removes scripts, styles, and non-content elements before sending to LLM
-- `set_model()` - Change the Claude model (e.g., claude-haiku-4-5, claude-3-5-sonnet)
-
-**Key Features:**
-- Polishes Trafilatura output for improved formatting and readability
-- Fixes markdown inconsistencies and structural issues
-- Preserves all content and links from original extraction
-- Uses Claude Haiku 4.5 by default for cost efficiency
-- Handles content of any size (works with already-extracted markdown)
-
-### Utility Module: `src/zotero_diagnose.py`
-
-Diagnostic tool for troubleshooting Zotero connections and library access. Provides CLI for testing API connectivity and group membership.
-
-### Research Module: ZoteroResearcher (Modular Architecture)
-
-**See "ZoteroResearcher Modular Architecture" section above for detailed module breakdown.**
-
-The ZoteroResearcher tool uses a **two-phase workflow** with **project-based organization**:
-
-**Phase 1 - Build Summaries (`--build-summaries`):**
-- Pre-process all sources with project-aware summaries
-- Extract metadata (authors, date, publication, type, URL)
-- Generate context-aware summaries informed by project overview
-- Assign relevant tags from user-provided list
-- Create structured "General Summary" notes in Zotero
-- Run once per project, reuse across multiple queries
-- Uses parallel LLM processing for efficiency
-
-**Phase 2 - Query (`--query-summary`):**
-- Load research brief from Zotero notes
-- Parse pre-built summaries with metadata and tags
-- Evaluate relevance using metadata + tags + summary content (parallel processing)
-- Rank sources by relevance score
-- Generate detailed targeted summaries for relevant sources (parallel processing)
-- Output professional HTML report
-- Smart storage: reports <1MB as notes, >1MB as files with stub notes
-
-**Phase 3 - Research Synthesis (automatic after Phase 2):**
-- Automatically triggered after creating research report (can be disabled in config)
-- Loads project overview and research brief from Zotero notes
-- Analyzes the full research report to create a meta-analysis synthesis
-- Uses Claude Sonnet (always, regardless of use_sonnet setting) for high-quality analysis
-- Generates comprehensive synthesis including:
-  - Executive Summary
-  - Main Themes and Patterns
-  - Key Findings (with source citations)
-  - Implications and Insights
-  - Recommendations
-  - Research Gaps and Future Directions
-- Saves as "Research Synthesis: {title}" note in project subcollection
-- Can be disabled by setting `generate_synthesis=false` in Project Config
-
-**Key Features:**
-- Project-based organization (multiple projects per collection)
-- Two-phase workflow: build once, query multiple times
-- Context-aware summaries informed by project overview
-- Tag-based categorization from user-defined taxonomy
-- Rich metadata extraction from Zotero API
-- Relevance evaluation using metadata + tags + summary
-- Professional HTML reports with metadata and tag badges
-- Parallel LLM processing for speed and efficiency
-- Cost-efficient: expensive summarization separate from cheap relevance checks
-
-**LLM Model Strategy:**
-- **Claude Haiku 4.5** for Phase 1 general summaries (cost-efficient)
-- **Claude Haiku 4.5** for relevance evaluation (fast, cheap)
-- **Claude Haiku 4.5** for detailed targeted summaries by default (cost-efficient)
-- **Claude Sonnet 4.5** for detailed targeted summaries with Project Config override (production quality)
-- **Claude Sonnet 4.5** for research synthesis (always, high-quality meta-analysis)
-
-**Structured Note Format:**
-```
-General Summary
-
-## Metadata
-- **Title**: <title>
-- **Authors**: <authors>
-- **Date**: <date>
-- **Publication**: <publication>
-- **Type**: <document type determined by LLM>
-- **URL**: <url>
-
-## Tags
-<comma-separated tags>
-
-## Summary
-<summary text>
-
----
-Created: <timestamp>
-Project: <project name>
-```
-
-**Zotero-Native Workflow (Project-Based):**
-
-*Initialization (run once per project):*
-1. Run `--init-collection --collection KEY --project "PROJECT_NAME"`
-2. Creates project-specific subcollection: `【ZResearcher: PROJECT_NAME】`
-3. Creates four template notes in the subcollection:
-   - **【Project Overview: PROJECT_NAME】**: Describe research project and goals
-   - **【Research Tags: PROJECT_NAME】**: Tag list (one per line)
-   - **【Research Brief: PROJECT_NAME】**: Research question/brief
-   - **【Project Config: PROJECT_NAME】**: Optional performance & LLM tuning
-4. Edit template notes in Zotero (remove [TODO: markers)
-
-*Phase 1 - Build Summaries:*
-1. Run `--build-summaries --collection KEY --project "PROJECT_NAME"`
-2. Load project overview, tags, and config from Zotero notes
-3. For each source in collection:
-   - Extract metadata from Zotero API
-   - Get source content (HTML/PDF/URL)
-   - Generate context-aware summary with LLM (parallel processing)
-   - Assign relevant tags from provided list
-   - Identify document type (LLM)
-   - Create structured "General Summary" note in Zotero
-4. Skip existing summaries unless `--force` flag used
-
-*Phase 2 - Query Summary:*
-1. Run `--query-summary --collection KEY --project "PROJECT_NAME"`
-2. Load research brief and config from Zotero notes
-3. For each source in collection:
-   - Load and parse "General Summary" note
-   - Extract metadata, tags, and summary
-   - Evaluate relevance using metadata + tags + summary (parallel processing)
-   - If score ≥ threshold: add to relevant sources list
-4. Rank relevant sources by score
-5. Generate detailed targeted summaries with quotes (parallel processing)
-6. Generate HTML report with LLM-generated title
-7. **Smart storage:**
-   - If report <1MB: Create full note in project subcollection
-   - If report >1MB: Save as HTML file + create stub note with file location
-
-*Phase 3 - Research Synthesis (automatic):*
-1. After research report is created (if `generate_synthesis=true` in config)
-2. Load project overview from Zotero notes
-3. Send report + project overview + research brief to Claude Sonnet
-4. Generate comprehensive meta-analysis synthesis
-5. Save as "Research Synthesis: {title}" note in project subcollection
-
-**Benefits of Two-Phase Approach:**
-- **Efficiency**: Build summaries once, query many times
-- **Context-Aware**: Summaries informed by project overview
-- **Better Relevance**: Tags help LLM evaluate topical alignment
-- **Metadata Rich**: Display source provenance and authority
-- **Flexibility**: Run multiple queries against same summary set
-- **Cost Optimization**: ~90% cost reduction by separating phases
-
-**Zotero-Native Configuration (Template Notes):**
-
-The `--init-collection` command creates a "ZoteroResearcher" subcollection with three template notes:
-
-1. **Project Overview** - Template structure:
-```
-[TODO: Replace this template with your project description]
-
-Describe your research project, goals, and key areas of interest.
-This context will inform the general summaries created for each source.
-
-Example:
-This project examines the impact of artificial intelligence on
-software development practices. Key areas include: code generation
-tools, automated testing, productivity metrics, and ethical
-considerations. The research will inform a technical report for
-software engineering managers.
-
----
-Template created by ZoteroResearcher
-Edit this note before running --build-summaries
-```
-
-2. **Research Tags** - Template structure:
-```
-[TODO: Replace with your research tags, one per line]
-
-Example tags:
-artificial-intelligence
-software-development
-code-generation
-automated-testing
-productivity-metrics
-ethics
-
----
-Template created by ZoteroResearcher
-Edit this note before running --build-summaries
-```
-
-3. **Research Brief** - Template structure:
-```
-[TODO: Replace this template with your research question]
-
-Describe the specific research question or brief you want to answer.
-This will be used to evaluate relevance of sources and generate targeted summaries.
-
-Example:
-What are the current challenges and best practices for integrating
-AI-powered code generation tools into enterprise software development
-workflows? Focus on adoption barriers, productivity impacts, and
-quality assurance approaches.
-
----
-Template created by ZoteroResearcher
-Edit this note before running --query-summary
-```
-
-**Template Validation:**
-- The tool checks for `[TODO:` markers when loading configuration
-- If markers are found, it will refuse to run and prompt you to edit the notes
-- This ensures you don't accidentally run with placeholder templates
-
-**Inherits from:** `ZoteroBaseProcessor` (shares collection/attachment/note handling with other modules)
-
-### Base Module: `src/zotero_base.py`
-
-The `ZoteroBaseProcessor` class provides shared functionality for all processors:
-
-**Collection & Item Management:**
-- `list_collections()` / `print_collections()` - Collection management
-- `get_collection_items()` - Retrieves top-level items from collection
-- `get_item_attachments()` - Fetches child attachments
-- `get_subcollection()` - Get subcollection by name within parent collection
-- `create_subcollection()` - Create subcollection inside parent collection
-
-**Attachment & Content:**
-- `is_html_attachment()` / `is_pdf_attachment()` - Content type detection
-- `download_attachment()` - Downloads attachment content from Zotero
-
-**Note Management:**
-- `create_note()` - Creates child note attached to item (with markdown conversion)
-- `create_standalone_note()` - Creates standalone note in collection (with markdown conversion)
-- `get_collection_notes()` - Get all standalone notes in collection
-- `has_note_with_prefix()` / `get_note_with_prefix()` - Note checking and retrieval
-- `get_note_title_from_html()` - Extract title from note HTML (first h1 or first line)
-- `extract_text_from_note_html()` - Extract plain text from note HTML
-- `markdown_to_html()` - Convert markdown to HTML for Zotero notes
-
-**Used by:**
-- `ZoteroResearcherBase` (zr_common.py) - Base class for all ZoteroResearcher modules
-- `ZoteroSourceSummarizer` (old/summarize_sources.py) - Legacy, deprecated
-
-### Cache Module: `src/zotero_cache.py`
-
-The `ZoteroCache` class provides local SQLite-based caching for Zotero data:
-
-**Storage:**
-- SQLite database per library+collection: `{library_id}_{collection_key}.db`
-- Attachment files stored in shared filesystem: `~/.zotero_summarizer/cache/attachments/`
-- In-memory session cache for frequently accessed data
-
-**Read Operations (cache-first):**
-- `get_collections()` / `get_collection()` / `get_subcollections()` - Collection data
-- `get_collection_items()` - Items in a collection
-- `get_item_children()` - Notes and attachments for an item
-- `get_attachment_file()` - Attachment file content
-
-**Write Operations (store after API success):**
-- `store_collection()` / `store_collections()` - Cache collection metadata
-- `store_item()` / `store_items()` - Cache items with collection membership
-- `store_child()` / `store_children()` - Cache notes and attachments
-- `store_attachment_file()` - Cache attachment file content
-
-**Sync State:**
-- `get_library_version()` / `set_library_version()` - Track library version for delta sync
-- `is_synced()` / `needs_sync()` - Check if cache needs updating
-- `get_last_sync_time()` / `set_last_sync_time()` - Track sync timestamps
-
-**Invalidation:**
-- `invalidate_item()` - Remove item and its children from cache
-- `invalidate_child()` - Remove specific child (note/attachment)
-- `invalidate_children_for_parent()` - Remove all children for a parent
-- `clear_all()` - Clear entire cache for collection
-
-**Statistics:**
-- `get_stats()` - Get cache statistics (counts, sizes)
-- `print_stats()` - Print formatted cache status
-
-### Data Flow (ZoteroResearcher)
-
-**Initialization:**
-1. Load Zotero credentials and LLM API key from environment variables
-2. Validate project name and collection key
-3. Route to appropriate workflow module (Init/Build/Query)
-
-**Phase 1 - Build Summaries:**
-1. Load project overview, tags, and config from Zotero subcollection notes
-2. For each item in collection:
-   - Skip if already a note/attachment
-   - Check for existing project-specific summary (skip unless `--force`)
-   - Extract metadata from Zotero API
-   - Get source content using priority: Markdown Extract → HTML → PDF → URL
-   - Build batch of LLM requests
-3. Process batch in parallel with configured worker count
-4. Create structured "General Summary" notes in Zotero with metadata, tags, and summary
-
-**Phase 2 - Query Summary:**
-1. Load research brief and config from Zotero subcollection notes
-2. For each item in collection:
-   - Load and parse existing "General Summary" note
-   - Extract metadata, tags, and summary
-   - Build batch of relevance evaluation requests
-3. Process relevance evaluations in parallel
-4. Filter sources by relevance threshold
-5. Rank sources by relevance score
-6. Build batch of targeted summary requests for relevant sources
-7. Process targeted summaries in parallel
-8. Generate HTML report with LLM-generated title
-9. Smart storage: Save as note if <1MB, otherwise save as file with stub note
-
-**Phase 3 - Research Synthesis (automatic after Phase 2):**
-1. Check if synthesis is enabled (`generate_synthesis=true` in config, default: enabled)
-2. Load project overview from Zotero notes
-3. Generate synthesis prompt with:
-   - Project overview
-   - Research brief
-   - Full research report HTML content (truncated to 400K chars if needed)
-4. Call Claude Sonnet with synthesis prompt (16K max tokens)
-5. Create "Research Synthesis: {title}" note in project subcollection
-
-### Content Retrieval Priority (ZoteroResearcher)
-1. Existing "Markdown Extract" note (from legacy tools)
-2. HTML snapshot (Zotero stored snapshot)
-3. PDF attachment (PyMuPDF extraction)
-4. URL fetch (for webpage items without snapshots)
-
-### Content Extraction Methods (Shared across all tools)
-
-**Trafilatura Extraction (default):**
-- Purpose-built for extracting main article content from web pages
-- Intelligently identifies and extracts article content
-- Handles documents of any size
-- Outputs clean markdown directly
-- Free, fast, and accurate for most web pages
-- **Default method for all extractions**
-
-**LLM Polish (--use-llm):**
-- Applies Claude API to polish Trafilatura output
-- Improves markdown formatting and structure
-- Fixes inconsistencies and artifacts
-- Enhances readability
-- Requires `ANTHROPIC_API_KEY` environment variable
-- Works with content of any size (since it polishes extracted markdown, not raw HTML)
-
-**BeautifulSoup Extraction (fallback only):**
-- Rule-based HTML cleaning
-- Removes script, style, nav, footer, header tags
-- Converts to Markdown using html2text
-- Used only as fallback when Trafilatura fails
-- Can be disabled with `--no-fallback`
-
-## Configuration & Environment
-
-### Environment Variables (`.env`)
-```
+```bash
 # Zotero Configuration
 ZOTERO_LIBRARY_ID=<library_id>      # User or group ID
-ZOTERO_LIBRARY_TYPE=user|group      # Type of library (user or group - no quotes!)
-ZOTERO_API_KEY=<api_key>            # Zotero API authentication key
+ZOTERO_LIBRARY_TYPE=user|group      # Type of library (no quotes!)
+ZOTERO_API_KEY=<api_key>            # Zotero API key
 ZOTERO_COLLECTION_KEY=<collection>  # Collection to process
 
 # LLM Configuration
-ANTHROPIC_API_KEY=<api_key>         # Anthropic API key for Claude (required for most features)
-GEMINI_API_KEY=<api_key>            # Google Gemini API key (required for --file-search)
+ANTHROPIC_API_KEY=<api_key>         # Claude API key (required)
+GEMINI_API_KEY=<api_key>            # Gemini API key (for --file-search)
 ```
 
-**Important:** Do not use quotes around values in `.env` files. For example:
-- ✅ Correct: `ZOTERO_LIBRARY_TYPE=group`
-- ❌ Wrong: `ZOTERO_LIBRARY_TYPE='group'` (quotes will be included in the value)
+**Important:** Do not use quotes around values in `.env` files.
 
-### Key Dependencies
+## Key Dependencies
+
 - **pyzotero** - Zotero API client
-- **trafilatura** - Main content extraction from web pages (primary extraction method)
-- **beautifulsoup4** - HTML parsing and cleaning (fallback only)
-- **html2text** - HTML to Markdown conversion (fallback only)
-- **requests** - HTTP library for URL fetching
-- **python-dotenv** - Environment variable management
-- **anthropic** - Anthropic Claude API client (required for most features)
-- **google-genai** - Google Gemini API client v1.x (required for --file-search)
+- **trafilatura** - Web content extraction (primary method)
+- **beautifulsoup4** / **html2text** - HTML processing (fallback)
+- **anthropic** - Claude API client
+- **google-genai** - Gemini API client (for file search)
+- **python-dotenv** - Environment management
 
-### Python Version
-- **Required:** Python 3.12+
-- Use `.python-version` file for version management
+## Python Version
 
-## Important Implementation Details
+**Required:** Python 3.12+
 
-### API Rate Limiting
-The code includes 1-second delays between API calls to respect Zotero's rate limits. This is implemented in the collection processing loop.
+## LLM Model Strategy
 
-### Duplicate Prevention
-The `--force` flag controls whether to re-extract markdown notes. The code checks for existing "Markdown Extract" notes to avoid duplicates. This prevents the same content from being extracted multiple times (commit 137431e).
+- **Claude Haiku 4.5**: Phase 1 summaries, relevance evaluation, targeted summaries (default)
+- **Claude Sonnet 4.5**: Targeted summaries (with config override), research synthesis (always)
 
-### Library Type Support
-Supports both user libraries and group libraries. The `ZOTERO_LIBRARY_TYPE` environment variable determines which type is used (commit b1cdc8d added group support).
+## Content Extraction Priority
 
-### PDF Attachment Handling
-Items with PDF attachments are automatically skipped for HTML extraction. This prevents unnecessary webpage fetching when a PDF version already exists. The logic checks all child attachments for PDF files (by content type or file extension) before attempting any HTML extraction.
+1. Existing "Markdown Extract" note
+2. HTML snapshot (Trafilatura extraction)
+3. PDF attachment (PyMuPDF extraction)
+4. URL fetch (for webpages without snapshots)
 
-### Webpage Without Snapshot Handling
-The tool can extract content from webpage items even without HTML snapshots:
-- If an item has **no child items** and is a `webpage` type with a URL, content is fetched directly from the URL
-- If an item has **child items but no HTML attachments** (e.g., only text files) and is a `webpage` type, content is fetched from the parent item's URL
-- This enables extraction from webpages added to Zotero without saving snapshots
-- PDF attachments take priority - if a PDF exists, webpage extraction is skipped
+## Linting & Code Quality
 
-### HTML Processing Pipelines
+No linting tools currently configured. Future setup should include `black`, `ruff`, or `pylint`.
 
-**Trafilatura Pipeline (default):**
-1. Trafilatura analyzes HTML structure
-2. Identifies main content area using heuristics
-3. Extracts article content (text, headings, links, tables)
-4. Removes ads, navigation, footers, and other non-content
-5. Outputs clean Markdown directly
-6. Handles documents of any size
+## Testing
 
-**Trafilatura + LLM Polish Pipeline (--use-llm):**
-1. Trafilatura extracts main content to Markdown
-2. Send extracted Markdown to Claude API
-3. Claude polishes formatting and structure
-4. Claude fixes any extraction artifacts
-5. Returns enhanced Markdown
-6. Fallback to unpolished Trafilatura output if LLM fails
+No test framework currently configured. Tests should be added in `/tests/` using `pytest`.
 
-**BeautifulSoup Pipeline (fallback only):**
-1. Parse HTML with BeautifulSoup
-2. Remove script, style, nav, footer, and header tags
-3. Extract text content
-4. Convert to Markdown using html2text
-5. Used only when Trafilatura fails
-
-## Testing & Validation
-
-Currently no tests are implemented. When adding tests:
+When adding tests:
 - Mock Zotero API responses using pyzotero fixtures
 - Test HTML extraction with various document structures
 - Validate Markdown conversion accuracy
-- Test environment variable handling and credential validation
+- Test environment variable handling
 - Test edge cases: missing attachments, invalid URLs, malformed HTML
 
-## Known Limitations & Future Work
+## Known Limitations
 
 - No linting or code formatting tools configured
 - No automated test suite
 - Documentation is minimal (only basic README)
 - No CI/CD pipeline configured
-- Group collection support was added recently (commit b1cdc8d) - validate thoroughly
+
+## Legacy Tools
+
+Deprecated tools moved to `/old/`:
+- `extract_html.py` - Simple HTML-to-Markdown (superseded)
+- `summarize_sources.py` - Basic summarization (superseded)
