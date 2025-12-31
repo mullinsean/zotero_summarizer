@@ -549,9 +549,9 @@ class ZoteroVectorSearcher(ZoteroResearcherBase):
         # Generate response
         prompt = self._build_rag_prompt(query, context, project_overview)
 
-        response = self.llm_client.generate_text(
+        response = self.llm_client.call(
             prompt=prompt,
-            model="haiku",
+            model=self.haiku_model,
             max_tokens=4096
         )
 
@@ -592,9 +592,9 @@ Query: {query}
 
 Respond with ONLY the title, no quotes or explanation:"""
 
-        title = self.llm_client.generate_text(
+        title = self.llm_client.call(
             prompt=prompt,
-            model="haiku",
+            model=self.haiku_model,
             max_tokens=50
         )
 
@@ -834,7 +834,8 @@ Respond with ONLY the title, no quotes or explanation:"""
             item_type = item_data.get('itemType', 'N/A')
 
             # Generate Zotero link
-            zotero_link = f"zotero://select/{self.library_type}/{self.library_id}/items/{item_key}"
+            library_type = 'groups' if self.zot.library_type == 'group' else 'library'
+            zotero_link = f"zotero://select/{library_type}/{self.zot.library_id}/items/{item_key}"
 
             match = SourceMatch(
                 item_key=item_key,
@@ -883,9 +884,9 @@ Key Excerpts:
 
 Respond with ONLY the justification (1-2 sentences), no other text:"""
 
-        justification = self.llm_client.generate_text(
+        justification = self.llm_client.call(
             prompt=prompt,
-            model="haiku",
+            model=self.haiku_model,
             max_tokens=100
         )
 
