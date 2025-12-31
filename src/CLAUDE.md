@@ -13,12 +13,15 @@ src/
 ├── zr_build.py             # Phase 1: Build summaries workflow
 ├── zr_query.py             # Phase 2: Query & report generation workflow
 ├── zr_file_search.py       # File Search: Gemini RAG integration
+├── zr_vector_db.py         # Vector Search: Local semantic search
+├── zr_vector_embeddings.py # Embedding model wrapper (sentence-transformers)
+├── zr_vector_chunker.py    # Document chunking with page/section tracking
 ├── zr_cleanup.py           # Cleanup: Delete projects & summary notes
 ├── zr_export.py            # Export: NotebookLM format & summary export
 ├── zr_llm_client.py        # Centralized LLM API client
 ├── zr_prompts.py           # Prompt templates
 ├── zotero_base.py          # Base Zotero API functionality
-├── zotero_cache.py         # Local SQLite cache layer
+├── zotero_cache.py         # Local SQLite cache layer + vector storage
 ├── llm_extractor.py        # LLM-powered content polishing
 └── zotero_diagnose.py      # Diagnostic utility
 ```
@@ -85,6 +88,61 @@ Run after `init_collection` but before `build_summaries`.
 - `generate_report_title()` - LLM-generated report titles
 - `_compile_research_html_string()` - HTML report generation
 - Smart storage: Notes <1MB, files >1MB with stub notes
+
+### `zr_vector_db.py` - Vector Search Workflow (Local RAG)
+
+`ZoteroVectorSearcher` class (inherits from `ZoteroResearcherBase`):
+
+**Indexing (`index_collection()`):**
+- Extract content from collection items (PDF/HTML/TXT)
+- Chunk documents with page/section tracking
+- Generate embeddings using sentence-transformers
+- Store chunks and embeddings in SQLite cache
+- Track indexing state for incremental updates
+
+**RAG Query (`run_vector_query()`):**
+- Load query from Query Request note
+- Embed query and search vector database
+- Group results by source with page references
+- Generate LLM response with inline citations [N, p.X]
+- Save Vector Search Report to Zotero
+
+**Document Discovery (`discover_sources()`):**
+- Load query from Query Request note
+- Embed query and search vector database
+- Aggregate chunk scores by source document
+- Generate brief justifications for top N sources
+- Save Discovery Report to Zotero
+
+**Helper Methods:**
+- `_group_chunks_by_source()` - Group search results by item
+- `_generate_rag_response()` - Generate cited response via LLM
+- `_generate_discovery_justification()` - Generate relevance justifications
+- `_format_vector_report()` / `_format_discovery_report()` - Report formatting
+
+### `zr_vector_embeddings.py` - Embedding Model Wrapper
+
+`VectorEmbeddingModel` class:
+- Wraps sentence-transformers for local embeddings
+- Default model: all-MiniLM-L6-v2 (384 dimensions)
+- `embed_documents(texts)` - Batch embed documents
+- `embed_query(query)` - Embed single query
+- `serialize_embedding()` / `deserialize_embedding()` - Binary serialization for SQLite
+
+Supported models: all-MiniLM-L6-v2, all-mpnet-base-v2, bge-small-en-v1.5, bge-base-en-v1.5
+
+### `zr_vector_chunker.py` - Document Chunker
+
+`ChunkData` dataclass:
+- `text`, `chunk_index`, `page_number`, `section_id`, `char_start`, `char_end`
+
+`DocumentChunker` class:
+- Configurable chunk_size (default 512), chunk_overlap (default 50)
+- `chunk_pdf(pdf_bytes)` - Chunk PDF with page tracking
+- `chunk_html(html_bytes)` - Chunk HTML with section tracking
+- `chunk_markdown(markdown_text)` - Chunk markdown with heading tracking
+- `chunk_text(text)` - Basic text chunking
+- Smart split detection: paragraph breaks → sentence endings → punctuation → words
 
 ### `zr_file_search.py` - File Search Workflow (Gemini RAG)
 
@@ -206,6 +264,14 @@ Uses Google Gemini File Search Stores (genai.Client API). Files uploaded to dedi
 - `get_stats()` - Get cache statistics
 - `print_stats()` - Print formatted cache status
 
+**Vector Storage:**
+- `store_chunks()` - Store document chunks with embeddings
+- `search_vectors()` - Cosine similarity search with optional filtering
+- `get_index_state()` / `is_item_indexed()` - Check indexing status
+- `get_indexed_items()` - List all indexed items
+- `delete_item_vectors()` / `delete_all_vectors()` - Remove vector data
+- `get_vector_stats()` / `print_vector_stats()` - Vector statistics
+
 ---
 
 ## Utility Modules
@@ -239,6 +305,7 @@ ZoteroBaseProcessor (zotero_base.py)
     ├── ZoteroResearcherBuilder (zr_build.py)
     ├── ZoteroResearcherQuerier (zr_query.py)
     ├── ZoteroFileSearcher (zr_file_search.py)
+    ├── ZoteroVectorSearcher (zr_vector_db.py)
     ├── ZoteroResearcherCleaner (zr_cleanup.py)
     └── ZoteroNotebookLMExporter (zr_export.py)
 ```

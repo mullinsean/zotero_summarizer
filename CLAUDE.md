@@ -53,6 +53,18 @@ uv run python -m src.zresearcher --build-summaries \
 # Run query (Phase 2 + Phase 3)
 uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Project"
+
+# Vector search: Index collection
+uv run python -m src.zresearcher --index-vectors \
+    --collection COLLECTION_KEY --project "My Project"
+
+# Vector search: RAG query (requires indexing first)
+uv run python -m src.zresearcher --vector-search \
+    --collection COLLECTION_KEY --project "My Project"
+
+# Vector search: Find top N relevant sources
+uv run python -m src.zresearcher --discover-sources \
+    --collection COLLECTION_KEY --project "My Project" --top-n 10
 ```
 
 For full command reference, see [docs/claude/commands.md](docs/claude/commands.md).
@@ -68,12 +80,15 @@ src/
 ├── zr_build.py             # Phase 1: Build summaries
 ├── zr_query.py             # Phase 2: Query & reports
 ├── zr_file_search.py       # Gemini RAG integration
+├── zr_vector_db.py         # Local vector search (index, query, discover)
+├── zr_vector_embeddings.py # Embedding model wrapper
+├── zr_vector_chunker.py    # Document chunking with page tracking
 ├── zr_cleanup.py           # Project cleanup
 ├── zr_export.py            # Export workflows
 ├── zr_llm_client.py        # LLM API client
 ├── zr_prompts.py           # Prompt templates
 ├── zotero_base.py          # Base Zotero API
-├── zotero_cache.py         # Local SQLite cache
+├── zotero_cache.py         # Local SQLite cache + vector storage
 ├── llm_extractor.py        # Content polishing
 └── zotero_diagnose.py      # Diagnostic utility
 ```
@@ -103,6 +118,8 @@ GEMINI_API_KEY=<api_key>            # Gemini API key (for --file-search)
 - **beautifulsoup4** / **html2text** - HTML processing (fallback)
 - **anthropic** - Claude API client
 - **google-genai** - Gemini API client (for file search)
+- **sentence-transformers** - Local embedding models (for vector search)
+- **sqlite-vec** - Vector search extension for SQLite
 - **python-dotenv** - Environment management
 
 ## Python Version

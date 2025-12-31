@@ -126,13 +126,32 @@ class ZoteroCache:
                     FOREIGN KEY (attachment_key) REFERENCES children(key)
                 );
 
-                -- Future: Vector embeddings table
-                CREATE TABLE IF NOT EXISTS embeddings (
-                    item_key TEXT PRIMARY KEY,
+                -- Vector chunks storage with metadata for filtering and citations
+                CREATE TABLE IF NOT EXISTS vector_chunks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    item_key TEXT NOT NULL,
+                    chunk_index INTEGER NOT NULL,
+                    chunk_text TEXT NOT NULL,
                     embedding BLOB,
+                    page_number INTEGER,
+                    section_id TEXT,
+                    char_start INTEGER,
+                    char_end INTEGER,
+                    item_type TEXT,
+                    doc_type TEXT,
                     content_hash TEXT,
-                    model_version TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (item_key) REFERENCES items(key),
+                    UNIQUE(item_key, chunk_index)
+                );
+
+                -- Track what items have been indexed
+                CREATE TABLE IF NOT EXISTS vector_index_state (
+                    item_key TEXT PRIMARY KEY,
+                    chunk_count INTEGER,
+                    content_hash TEXT,
+                    embedding_model TEXT,
+                    indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (item_key) REFERENCES items(key)
                 );
 
@@ -140,6 +159,9 @@ class ZoteroCache:
                 CREATE INDEX IF NOT EXISTS idx_children_parent ON children(parent_key);
                 CREATE INDEX IF NOT EXISTS idx_item_collections_collection ON item_collections(collection_key);
                 CREATE INDEX IF NOT EXISTS idx_items_type ON items(item_type);
+                CREATE INDEX IF NOT EXISTS idx_chunks_item ON vector_chunks(item_key);
+                CREATE INDEX IF NOT EXISTS idx_chunks_item_type ON vector_chunks(item_type);
+                CREATE INDEX IF NOT EXISTS idx_chunks_doc_type ON vector_chunks(doc_type);
             """)
             conn.commit()
 
@@ -741,3 +763,303 @@ class ZoteroCache:
         print(f"  Children: {stats['children_count']}")
         print(f"  Attachments: {stats['attachment_files_count']}")
         print(f"  Attachment storage: {stats['attachments_size_mb']:.2f} MB")
+
+    # =========================================================================
+    # Vector Database Operations
+    # =========================================================================
+
+    def store_chunks(
+        self,
+        item_key: str,
+        chunks: List[Dict],
+        embeddings: List[bytes],
+        item_type: Optional[str] = None,
+        doc_type: Optional[str] = None,
+        content_hash: Optional[str] = None,
+        embedding_model: str = "all-MiniLM-L6-v2"
+    ) -> int:
+        """
+        Store document chunks with embeddings.
+
+        Args:
+            item_key: Zotero item key
+            chunks: List of chunk dictionaries with text, page_number, section_id, etc.
+            embeddings: List of serialized embedding bytes (one per chunk)
+            item_type: Zotero item type (e.g., journalArticle)
+            doc_type: Document type from Phase 1 (e.g., primary source)
+            content_hash: Hash of original content for change detection
+            embedding_model: Name of embedding model used
+
+        Returns:
+            Number of chunks stored
+        """
+        if len(chunks) != len(embeddings):
+            raise ValueError(f"Chunks ({len(chunks)}) and embeddings ({len(embeddings)}) must match")
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Delete existing chunks for this item
+            conn.execute("DELETE FROM vector_chunks WHERE item_key = ?", (item_key,))
+
+            # Insert new chunks
+            for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+                conn.execute(
+                    """INSERT INTO vector_chunks
+                       (item_key, chunk_index, chunk_text, embedding,
+                        page_number, section_id, char_start, char_end,
+                        item_type, doc_type, content_hash)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        item_key,
+                        chunk.get('chunk_index', i),
+                        chunk.get('text', ''),
+                        embedding,
+                        chunk.get('page_number'),
+                        chunk.get('section_id'),
+                        chunk.get('char_start', 0),
+                        chunk.get('char_end', 0),
+                        item_type,
+                        doc_type,
+                        content_hash
+                    )
+                )
+
+            # Update index state
+            conn.execute(
+                """INSERT OR REPLACE INTO vector_index_state
+                   (item_key, chunk_count, content_hash, embedding_model, indexed_at)
+                   VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                (item_key, len(chunks), content_hash, embedding_model)
+            )
+
+            conn.commit()
+
+        self._log(f"Stored {len(chunks)} chunks for item {item_key}")
+        return len(chunks)
+
+    def search_vectors(
+        self,
+        query_embedding: bytes,
+        top_k: int = 20,
+        item_types: Optional[List[str]] = None,
+        doc_types: Optional[List[str]] = None,
+        item_keys: Optional[List[str]] = None
+    ) -> List[Dict]:
+        """
+        Search for similar vectors using cosine similarity.
+
+        Note: This is a brute-force search. For large collections,
+        consider using sqlite-vec virtual tables for optimized search.
+
+        Args:
+            query_embedding: Serialized query embedding bytes
+            top_k: Number of results to return
+            item_types: Filter by Zotero item types
+            doc_types: Filter by document types
+            item_keys: Filter to specific item keys
+
+        Returns:
+            List of result dictionaries with chunk data and similarity scores
+        """
+        import struct
+
+        # Deserialize query embedding
+        query_dim = len(query_embedding) // 4  # 4 bytes per float
+        query_vec = list(struct.unpack(f'{query_dim}f', query_embedding))
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Build query with optional filters
+            query = """
+                SELECT id, item_key, chunk_index, chunk_text, embedding,
+                       page_number, section_id, char_start, char_end,
+                       item_type, doc_type
+                FROM vector_chunks
+                WHERE embedding IS NOT NULL
+            """
+            params = []
+
+            if item_types:
+                placeholders = ','.join(['?' for _ in item_types])
+                query += f" AND item_type IN ({placeholders})"
+                params.extend(item_types)
+
+            if doc_types:
+                placeholders = ','.join(['?' for _ in doc_types])
+                query += f" AND doc_type IN ({placeholders})"
+                params.extend(doc_types)
+
+            if item_keys:
+                placeholders = ','.join(['?' for _ in item_keys])
+                query += f" AND item_key IN ({placeholders})"
+                params.extend(item_keys)
+
+            cursor = conn.execute(query, params)
+            rows = cursor.fetchall()
+
+        # Calculate similarities
+        results = []
+        for row in rows:
+            chunk_id, item_key, chunk_index, chunk_text, embedding_blob, \
+                page_number, section_id, char_start, char_end, \
+                item_type, doc_type = row
+
+            if embedding_blob is None:
+                continue
+
+            # Deserialize chunk embedding
+            chunk_vec = list(struct.unpack(f'{query_dim}f', embedding_blob))
+
+            # Calculate cosine similarity
+            similarity = self._cosine_similarity(query_vec, chunk_vec)
+
+            results.append({
+                'chunk_id': chunk_id,
+                'item_key': item_key,
+                'chunk_index': chunk_index,
+                'chunk_text': chunk_text,
+                'page_number': page_number,
+                'section_id': section_id,
+                'char_start': char_start,
+                'char_end': char_end,
+                'item_type': item_type,
+                'doc_type': doc_type,
+                'similarity': similarity
+            })
+
+        # Sort by similarity and return top_k
+        results.sort(key=lambda x: x['similarity'], reverse=True)
+        return results[:top_k]
+
+    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
+        """Calculate cosine similarity between two vectors."""
+        import math
+
+        dot_product = sum(a * b for a, b in zip(vec1, vec2))
+        norm1 = math.sqrt(sum(a * a for a in vec1))
+        norm2 = math.sqrt(sum(b * b for b in vec2))
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        return dot_product / (norm1 * norm2)
+
+    def get_index_state(self, item_key: str) -> Optional[Dict]:
+        """
+        Get indexing state for an item.
+
+        Args:
+            item_key: Zotero item key
+
+        Returns:
+            Dictionary with chunk_count, content_hash, embedding_model, indexed_at
+            or None if not indexed
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """SELECT chunk_count, content_hash, embedding_model, indexed_at
+                   FROM vector_index_state WHERE item_key = ?""",
+                (item_key,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'item_key': item_key,
+                    'chunk_count': row[0],
+                    'content_hash': row[1],
+                    'embedding_model': row[2],
+                    'indexed_at': row[3]
+                }
+            return None
+
+    def is_item_indexed(self, item_key: str) -> bool:
+        """Check if an item has been indexed."""
+        return self.get_index_state(item_key) is not None
+
+    def get_indexed_items(self) -> List[str]:
+        """Get list of all indexed item keys."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT item_key FROM vector_index_state")
+            return [row[0] for row in cursor.fetchall()]
+
+    def delete_item_vectors(self, item_key: str) -> int:
+        """
+        Delete all vectors for an item.
+
+        Args:
+            item_key: Zotero item key
+
+        Returns:
+            Number of chunks deleted
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT COUNT(*) FROM vector_chunks WHERE item_key = ?",
+                (item_key,)
+            )
+            count = cursor.fetchone()[0]
+
+            conn.execute("DELETE FROM vector_chunks WHERE item_key = ?", (item_key,))
+            conn.execute("DELETE FROM vector_index_state WHERE item_key = ?", (item_key,))
+            conn.commit()
+
+        self._log(f"Deleted {count} vectors for item {item_key}")
+        return count
+
+    def delete_all_vectors(self) -> int:
+        """
+        Delete all vectors in this cache.
+
+        Returns:
+            Number of chunks deleted
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM vector_chunks")
+            count = cursor.fetchone()[0]
+
+            conn.execute("DELETE FROM vector_chunks")
+            conn.execute("DELETE FROM vector_index_state")
+            conn.commit()
+
+        self._log(f"Deleted all {count} vectors")
+        return count
+
+    def get_vector_stats(self) -> Dict:
+        """Get vector database statistics."""
+        with sqlite3.connect(self.db_path) as conn:
+            stats = {}
+
+            # Count chunks
+            cursor = conn.execute("SELECT COUNT(*) FROM vector_chunks")
+            stats['chunk_count'] = cursor.fetchone()[0]
+
+            # Count indexed items
+            cursor = conn.execute("SELECT COUNT(*) FROM vector_index_state")
+            stats['indexed_items'] = cursor.fetchone()[0]
+
+            # Get embedding model info
+            cursor = conn.execute(
+                "SELECT DISTINCT embedding_model FROM vector_index_state"
+            )
+            models = [row[0] for row in cursor.fetchall()]
+            stats['embedding_models'] = models
+
+            # Count by item type
+            cursor = conn.execute(
+                """SELECT item_type, COUNT(*) FROM vector_chunks
+                   GROUP BY item_type"""
+            )
+            stats['chunks_by_type'] = {row[0]: row[1] for row in cursor.fetchall()}
+
+            return stats
+
+    def print_vector_stats(self):
+        """Print vector database statistics."""
+        stats = self.get_vector_stats()
+        print(f"\n=== Vector Index Status ===")
+        print(f"Indexed items: {stats['indexed_items']}")
+        print(f"Total chunks: {stats['chunk_count']}")
+        if stats['embedding_models']:
+            print(f"Embedding model(s): {', '.join(stats['embedding_models'])}")
+        if stats['chunks_by_type']:
+            print(f"\nChunks by type:")
+            for item_type, count in stats['chunks_by_type'].items():
+                print(f"  {item_type or 'unknown'}: {count}")
