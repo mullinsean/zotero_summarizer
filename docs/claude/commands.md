@@ -77,6 +77,72 @@ uv run python -m src.zresearcher --file-search \
 - LLM-generated report titles based on query request (format: "File Search Report: {title}")
 - Store name and upload state tracked in Project Config note
 
+## Vector Search (Local RAG)
+
+Local vector search provides semantic search over your collection without external API dependencies:
+
+```bash
+# Step 1: Index collection documents (creates embeddings)
+uv run python -m src.zresearcher --index-vectors \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Step 2: Edit the Query Request note in Zotero (same as File Search)
+
+# Step 3: Run Vector Search query
+uv run python -m src.zresearcher --vector-search \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Filter by Zotero item types (comma-separated)
+uv run python -m src.zresearcher --vector-search \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --item-types "journalArticle,report"
+
+# Filter by document types (from Phase 1 summaries)
+uv run python -m src.zresearcher --vector-search \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --doc-types "primary_source,technical_report"
+```
+
+### Document Discovery
+
+Find the most relevant documents for a topic without generating a full report:
+
+```bash
+# Discover top 10 relevant sources (default)
+uv run python -m src.zresearcher --discover-sources \
+    --collection COLLECTION_KEY --project "My Research Project"
+
+# Discover top N sources
+uv run python -m src.zresearcher --discover-sources \
+    --collection COLLECTION_KEY --project "My Research Project" --top-n 15
+
+# With filtering
+uv run python -m src.zresearcher --discover-sources \
+    --collection COLLECTION_KEY --project "My Research Project" \
+    --item-types "journalArticle" --top-n 5
+```
+
+### Vector Search Implementation Details
+
+- **Local processing**: All embedding and search happens locally using sentence-transformers
+- **Default model**: all-MiniLM-L6-v2 (384 dimensions, fast and efficient)
+- **Storage**: Vectors stored in SQLite cache (same as local cache feature)
+- **Chunking**: Documents split into 512-character chunks with 50-character overlap
+- **Page tracking**: Citations include page numbers for PDFs, section IDs for HTML
+- **Incremental indexing**: Only new/changed documents are re-indexed
+- **Filtering**: Filter by Zotero itemType or Phase 1 document type
+- **Citations**: RAG responses include [source_num, p.X] style citations
+- **Discovery justifications**: LLM-generated explanations for why each source is relevant
+
+### Configuration (Project Config note)
+
+```
+vector_chunk_size=512
+vector_chunk_overlap=50
+vector_top_k=20
+vector_embedding_model=all-MiniLM-L6-v2
+```
+
 ## Subcollection Filtering
 
 All workflows support optional subcollection filtering to process only items in specific subcollections:

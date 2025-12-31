@@ -201,6 +201,80 @@ Project: <project name>
 
 ---
 
+## Vector Search Workflow (Local RAG)
+
+Vector search provides semantic search over your collection using local embeddings, without requiring external API calls for search (only LLM calls for response generation).
+
+### Workflow Steps
+
+1. **Index Collection** (`--index-vectors`)
+   - Extract content from all items (PDF/HTML/TXT)
+   - Chunk documents with page/section tracking
+   - Generate embeddings using sentence-transformers (all-MiniLM-L6-v2)
+   - Store chunks and embeddings in SQLite cache
+   - Incremental: only new/changed documents are re-indexed
+
+2. **Run Query** (`--vector-search` or `--discover-sources`)
+   - Load query from Query Request note (same as File Search)
+   - Embed query using same model
+   - Search for similar chunks using cosine similarity
+   - Group results by source with page references
+   - Generate response with Claude (includes citations)
+
+### Vector Search vs File Search
+
+| Feature | Vector Search (Local) | File Search (Gemini) |
+|---------|----------------------|---------------------|
+| Embedding | Local (sentence-transformers) | Gemini API |
+| Storage | SQLite cache | Gemini File Store |
+| Search | Local cosine similarity | Gemini RAG |
+| Response | Claude API | Gemini API |
+| Offline | Yes (after indexing) | No |
+| Cost | Lower (local embeddings) | Higher (API calls) |
+| Quality | Good for document discovery | Better for complex queries |
+
+### Use Cases
+
+- **Vector Search** (`--vector-search`): Full RAG query with citations
+  - Answers questions with source references [N, p.X]
+  - Best for: research questions, finding evidence, synthesis
+
+- **Document Discovery** (`--discover-sources`): Find relevant documents
+  - Returns ranked list of sources with justifications
+  - Best for: literature review, source identification, scoping
+
+### Data Flow
+
+1. **Indexing**:
+   ```
+   Items → Content Extraction → Chunking → Embedding → SQLite Storage
+   ```
+
+2. **Querying**:
+   ```
+   Query → Embed → Vector Search → Group by Source → LLM Response → Zotero Report
+   ```
+
+### Configuration
+
+Vector search settings in Project Config note:
+
+```
+vector_chunk_size=512       # Characters per chunk
+vector_chunk_overlap=50     # Overlap between chunks
+vector_top_k=20             # Number of chunks to retrieve
+vector_embedding_model=all-MiniLM-L6-v2
+```
+
+### Filtering
+
+Both commands support filtering to narrow results:
+
+- `--item-types`: Filter by Zotero itemType (journalArticle, report, webpage, etc.)
+- `--doc-types`: Filter by Phase 1 document type (primary_source, technical_report, etc.)
+
+---
+
 ## Template Notes
 
 The `--init-collection` command creates a "ZoteroResearcher" subcollection with template notes:
