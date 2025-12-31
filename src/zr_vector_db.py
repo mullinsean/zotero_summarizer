@@ -704,9 +704,9 @@ Respond with ONLY the title, no quotes or explanation:"""
     def _get_project_subcollection_key(self, collection_key: str) -> str:
         """Get the project subcollection key."""
         subcollection_name = self._get_subcollection_name()
-        subcoll = self.get_subcollection(collection_key, subcollection_name)
-        if subcoll:
-            return subcoll['key']
+        subcoll_key = self.get_subcollection(collection_key, subcollection_name)
+        if subcoll_key:
+            return subcoll_key
         return collection_key
 
     # =========================================================================
