@@ -227,6 +227,14 @@ gemini_file_search_model=gemini-2.5-pro
 gemini_uploaded_files={}
 
 # ============================================================
+# Vector Database Configuration
+# ============================================================
+vector_chunk_size=512
+vector_chunk_overlap=50
+vector_top_k=20
+vector_embedding_model=all-MiniLM-L6-v2
+
+# ============================================================
 # Notes:
 # - Boolean values: true/false (case insensitive)
 # - Integer values: whole numbers

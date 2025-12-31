@@ -443,6 +443,46 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         return deleted
 
+    def delete_vector_index_for_project(
+        self,
+        collection_key: str
+    ) -> Dict:
+        """
+        Delete vector index data for items in this collection.
+
+        Args:
+            collection_key: Collection key
+
+        Returns:
+            Dictionary with 'deleted' count and 'errors' list
+        """
+        result = {'deleted': 0, 'errors': []}
+
+        cache = self._get_cache(collection_key)
+        if not cache:
+            return result
+
+        try:
+            # Get all items in the collection
+            items = self.get_collection_items(collection_key)
+            item_keys = [item['key'] for item in items if item.get('data', {}).get('itemType') not in ['attachment', 'note']]
+
+            # Delete vectors for each item
+            for item_key in item_keys:
+                deleted_count = cache.delete_item_vectors(item_key)
+                result['deleted'] += deleted_count
+
+            if result['deleted'] > 0:
+                print(f"    Deleted vector index ({result['deleted']} chunks)")
+
+        except Exception as e:
+            error_msg = f"Error deleting vector index: {e}"
+            result['errors'].append(error_msg)
+            if self.verbose:
+                print(f"  ⚠️  {error_msg}")
+
+        return result
+
     def cleanup_project(
         self,
         collection_key: str,
@@ -510,13 +550,18 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         # Perform deletion
         print("\n🗑️  Deleting items...")
-        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'errors': []}
+        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'vector_chunks': 0, 'errors': []}
 
         # Delete Gemini files first (if any)
         if subcollections:
             gemini_result = self.delete_gemini_files_for_project(collection_key)
             total_deleted['gemini_files'] += gemini_result['deleted']
             total_deleted['errors'].extend(gemini_result['errors'])
+
+        # Delete vector index
+        vector_result = self.delete_vector_index_for_project(collection_key)
+        total_deleted['vector_chunks'] += vector_result['deleted']
+        total_deleted['errors'].extend(vector_result['errors'])
 
         # Delete subcollection and contents
         for subcoll in subcollections:
@@ -553,6 +598,8 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         print(f"Deleted:")
         if total_deleted['gemini_files'] > 0:
             print(f"  • {total_deleted['gemini_files']} Gemini files")
+        if total_deleted['vector_chunks'] > 0:
+            print(f"  • {total_deleted['vector_chunks']} vector chunks")
         print(f"  • {total_deleted['notes']} notes")
         print(f"  • {total_deleted['files']} file attachments")
         print(f"  • {total_deleted['items']} other items")
@@ -616,7 +663,7 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
 
         # Perform deletion
         print("\n🗑️  Deleting items...")
-        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'errors': []}
+        total_deleted = {'notes': 0, 'files': 0, 'items': 0, 'gemini_files': 0, 'vector_chunks': 0, 'errors': []}
 
         # Delete Gemini files for each project
         for subcoll in subcollections:
@@ -626,6 +673,12 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
             gemini_result = self.delete_gemini_files_for_project(collection_key)
             total_deleted['gemini_files'] += gemini_result['deleted']
             total_deleted['errors'].extend(gemini_result['errors'])
+
+        # Delete all vector indexes
+        print(f"\n  Deleting vector indexes...")
+        vector_result = self.delete_vector_index_for_project(collection_key)
+        total_deleted['vector_chunks'] += vector_result['deleted']
+        total_deleted['errors'].extend(vector_result['errors'])
 
         # Delete all subcollections
         for subcoll in subcollections:
@@ -662,6 +715,8 @@ class ZoteroResearcherCleaner(ZoteroResearcherBase):
         print(f"Deleted:")
         if total_deleted['gemini_files'] > 0:
             print(f"  • {total_deleted['gemini_files']} Gemini files")
+        if total_deleted['vector_chunks'] > 0:
+            print(f"  • {total_deleted['vector_chunks']} vector chunks")
         print(f"  • {len(subcollections)} project subcollections")
         print(f"  • {total_deleted['notes']} notes")
         print(f"  • {total_deleted['files']} file attachments")

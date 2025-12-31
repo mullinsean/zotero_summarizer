@@ -24,6 +24,7 @@ try:
     from .zr_file_search import ZoteroFileSearcher
     from .zr_cleanup import ZoteroResearcherCleaner
     from .zr_export import ZoteroNotebookLMExporter
+    from .zr_vector_db import ZoteroVectorSearcher
 except ImportError:
     from zotero_base import ZoteroBaseProcessor
     from zr_common import validate_project_name
@@ -34,6 +35,7 @@ except ImportError:
     from zr_file_search import ZoteroFileSearcher
     from zr_cleanup import ZoteroResearcherCleaner
     from zr_export import ZoteroNotebookLMExporter
+    from zr_vector_db import ZoteroVectorSearcher
 
 
 def main():
@@ -191,6 +193,23 @@ Examples:
         help='Clear local cache for a collection'
     )
 
+    # Vector database commands
+    mode_group.add_argument(
+        '--index-vectors',
+        action='store_true',
+        help='Index collection documents to local vector database for semantic search'
+    )
+    mode_group.add_argument(
+        '--vector-search',
+        action='store_true',
+        help='Query collection using local vector RAG (requires --index-vectors first)'
+    )
+    mode_group.add_argument(
+        '--discover-sources',
+        action='store_true',
+        help='Find top N most relevant documents for a query (requires --index-vectors first)'
+    )
+
     # Common arguments
     parser.add_argument(
         '--collection',
@@ -269,6 +288,24 @@ Examples:
         '--offline',
         action='store_true',
         help='Work offline using only cached data (requires prior --sync)'
+    )
+
+    # Vector search arguments
+    parser.add_argument(
+        '--item-types',
+        type=str,
+        help='[Vector] Filter by Zotero itemType (comma-separated, e.g., "journalArticle,report")'
+    )
+    parser.add_argument(
+        '--doc-types',
+        type=str,
+        help='[Vector] Filter by document type (comma-separated, e.g., "primary source,report")'
+    )
+    parser.add_argument(
+        '--top-n',
+        type=int,
+        default=10,
+        help='[Vector] Number of sources to return for --discover-sources (default: 10)'
     )
 
     args = parser.parse_args()
@@ -579,6 +616,91 @@ Examples:
             print(f"✅ File search query completed successfully")
         else:
             print(f"❌ File search query failed")
+        return
+
+    # Handle --index-vectors mode
+    if args.index_vectors:
+        searcher = ZoteroVectorSearcher(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",
+            project_name=project_name,
+            force_rebuild=args.force,
+            verbose=args.verbose,
+            enable_cache=True,  # Cache required for vector operations
+            offline=args.offline
+        )
+        stats = searcher.index_collection(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
+        if stats['indexed'] > 0 or stats['skipped'] > 0:
+            print(f"✅ Vector indexing completed successfully")
+        else:
+            print(f"❌ No items were indexed")
+        return
+
+    # Handle --vector-search mode
+    if args.vector_search:
+        # Parse filtering options
+        item_types = args.item_types.split(',') if args.item_types else None
+        doc_types = args.doc_types.split(',') if args.doc_types else None
+
+        searcher = ZoteroVectorSearcher(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key,
+            project_name=project_name,
+            force_rebuild=False,
+            verbose=args.verbose,
+            enable_cache=True,  # Cache required for vector operations
+            offline=args.offline
+        )
+        result = searcher.run_vector_query(
+            collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main,
+            item_types=item_types,
+            doc_types=doc_types
+        )
+        if result:
+            print(f"✅ Vector search completed successfully")
+        else:
+            print(f"❌ Vector search failed")
+        return
+
+    # Handle --discover-sources mode
+    if args.discover_sources:
+        # Parse filtering options
+        item_types = args.item_types.split(',') if args.item_types else None
+        doc_types = args.doc_types.split(',') if args.doc_types else None
+
+        searcher = ZoteroVectorSearcher(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key,
+            project_name=project_name,
+            force_rebuild=False,
+            verbose=args.verbose,
+            enable_cache=True,  # Cache required for vector operations
+            offline=args.offline
+        )
+        matches = searcher.discover_sources(
+            collection_key,
+            top_n=args.top_n,
+            subcollections=args.subcollections,
+            include_main=args.include_main,
+            item_types=item_types,
+            doc_types=doc_types
+        )
+        if matches:
+            print(f"✅ Found {len(matches)} relevant sources")
+        else:
+            print(f"❌ No relevant sources found")
         return
 
     # Handle --cleanup-project mode

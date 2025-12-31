@@ -11,3 +11,7 @@ pymupdf
 markdown
 google-genai
 python-docx
+
+# Vector database
+sqlite-vec
+sentence-transformers
