@@ -27,7 +27,9 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         library_type: str,
         api_key: str,
         anthropic_api_key: str,
-        verbose: bool = False
+        verbose: bool = False,
+        enable_cache: bool = False,
+        offline: bool = False
     ):
         """
         Initialize the NotebookLM exporter.
@@ -38,6 +40,8 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
             api_key: Your Zotero API key
             anthropic_api_key: Anthropic API key (required by base class, not used for export)
             verbose: If True, show detailed information
+            enable_cache: If True, enable local caching
+            offline: If True, use cached data only (requires enable_cache)
         """
         # Initialize base class without project name
         super().__init__(
@@ -47,7 +51,9 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
             anthropic_api_key=anthropic_api_key,
             project_name=None,
             force_rebuild=False,
-            verbose=verbose
+            verbose=verbose,
+            enable_cache=enable_cache,
+            offline=offline
         )
 
     def _sanitize_filename(self, filename: str) -> str:
