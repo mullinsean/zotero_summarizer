@@ -96,6 +96,18 @@ Examples:
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files
   python zresearcher.py --export-summaries --collection KEY --project "AI Productivity" --separate-files --output-file ./summaries_dir
 
+  # Export: Export source directory table (markdown)
+  python zresearcher.py --export-directory --collection KEY --output-file ./source-directory.md
+  python zresearcher.py --export-directory --collection KEY --project "AI Productivity" --append
+
+  # Export: Export individual source files with YAML frontmatter for vault
+  python zresearcher.py --export-vault --collection KEY --output-dir ./vault/zotero-exports/
+  python zresearcher.py --export-vault --collection KEY --project "AI Productivity" --output-dir ./exports/
+
+  # Export: Export for Claude Code multi-agent skill (requires --build-summaries first)
+  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity" --output-dir ./claude_data/
+  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity" --output-dir ./ --include-full
+
   # Cache: Sync collection to local cache (required before offline use)
   python zresearcher.py --sync --collection KEY
 
@@ -174,6 +186,21 @@ Examples:
         '--export-summaries',
         action='store_true',
         help='Export all ZResearcher summary notes for a project to a single markdown file'
+    )
+    mode_group.add_argument(
+        '--export-directory',
+        action='store_true',
+        help='Export source directory table (markdown) for report-system vault'
+    )
+    mode_group.add_argument(
+        '--export-vault',
+        action='store_true',
+        help='Export individual source files with YAML frontmatter for vault integration'
+    )
+    mode_group.add_argument(
+        '--export-for-claude',
+        action='store_true',
+        help='Export collection data optimized for Claude Code skill consumption (requires --build-summaries first)'
     )
 
     # Cache management commands
@@ -277,6 +304,22 @@ Examples:
         action='store_true',
         help='[Export Summaries] Export each summary as a separate .md file instead of one consolidated file'
     )
+    parser.add_argument(
+        '--append',
+        action='store_true',
+        help='[Export Directory] Append to existing file instead of overwriting'
+    )
+    parser.add_argument(
+        '--include-full',
+        action='store_true',
+        help='[Export for Claude] Include full document content in addition to summaries'
+    )
+    parser.add_argument(
+        '--batch-tokens',
+        type=int,
+        default=60000,
+        help='[Export for Claude] Target tokens per batch for multi-agent processing (default: 60000)'
+    )
 
     # Cache arguments
     parser.add_argument(
@@ -353,7 +396,8 @@ Examples:
         args.upload_files,
         args.file_search,
         args.cleanup_project,
-        args.export_summaries
+        args.export_summaries,
+        args.export_for_claude
     ]
     if any(operations_requiring_project) and not args.project:
         print("Error: --project is required for this operation")
@@ -793,6 +837,97 @@ Examples:
             include_main=args.include_main,
             separate_files=args.separate_files
         )
+        return
+
+    # Handle --export-directory mode
+    if args.export_directory:
+        # Determine output path
+        if args.output_file:
+            output_path = args.output_file
+        else:
+            output_path = "./source-directory.md"
+
+        exporter = ZoteroNotebookLMExporter(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in export, but required by base class
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
+        )
+        stats = exporter.export_source_directory(
+            collection_key,
+            output_path=output_path,
+            project_name=project_name,
+            subcollections=args.subcollections,
+            include_main=args.include_main,
+            append=args.append
+        )
+        return
+
+    # Handle --export-vault mode
+    if args.export_vault:
+        # Determine output directory
+        if args.output_file:
+            output_dir = args.output_file
+        else:
+            output_dir = args.output_dir
+
+        exporter = ZoteroNotebookLMExporter(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in export, but required by base class
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
+        )
+        stats = exporter.export_to_vault(
+            collection_key,
+            output_dir=output_dir,
+            project_name=project_name,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
+        return
+
+    # Handle --export-for-claude mode
+    if args.export_for_claude:
+        if not project_name:
+            print("Error: --project is required for --export-for-claude")
+            print("Example: zr --export-for-claude --collection KEY --project \"My Project\" --output ./claude_data/")
+            return
+
+        # Determine output directory
+        if args.output_file:
+            output_dir = args.output_file
+        else:
+            output_dir = args.output_dir
+
+        exporter = ZoteroNotebookLMExporter(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key or "",  # Not used in export, but required by base class
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
+        )
+        try:
+            manifest = exporter.export_for_claude(
+                collection_key,
+                output_dir=output_dir,
+                project_name=project_name,
+                include_full_content=args.include_full,
+                batch_tokens=args.batch_tokens,
+                subcollections=args.subcollections,
+                include_main=args.include_main
+            )
+            print(f"\n✅ Export for Claude Code completed successfully")
+        except ValueError as e:
+            print(f"\n❌ Export failed: {e}")
+            return
         return
 
 
