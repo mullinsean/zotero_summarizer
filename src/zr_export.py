@@ -1004,9 +1004,9 @@ collection: {collection_name}
         summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
         citation_index = {}
         sources_with_summaries = []
-        missing_summaries = []
+        skipped_sources = []
 
-        print(f"\nPhase 1: Validating summaries...")
+        print(f"\nPhase 1: Collecting summaries...")
         for idx, item in enumerate(items, 1):
             item_data = item['data']
             item_key = item['key']
@@ -1026,7 +1026,7 @@ collection: {collection_name}
                         break
 
             if not summary_content:
-                missing_summaries.append(item_title)
+                skipped_sources.append(item_title)
                 continue
 
             # Extract metadata
@@ -1064,17 +1064,19 @@ collection: {collection_name}
                 'content_file': None   # Will be filled in if include_full_content
             }
 
-        # Check for missing summaries
-        if missing_summaries:
-            print(f"\n⚠️  WARNING: {len(missing_summaries)} items missing Phase 1 summaries:")
-            for title in missing_summaries[:10]:
+        # Report skipped sources
+        if skipped_sources:
+            print(f"\n⚠️  Skipping {len(skipped_sources)} items without Phase 1 summaries:")
+            for title in skipped_sources[:5]:
                 print(f"   - {title[:60]}")
-            if len(missing_summaries) > 10:
-                print(f"   ... and {len(missing_summaries) - 10} more")
-            print(f"\nRun --build-summaries first to generate summaries for all sources.")
-            raise ValueError(f"{len(missing_summaries)} sources missing Phase 1 summaries")
+            if len(skipped_sources) > 5:
+                print(f"   ... and {len(skipped_sources) - 5} more")
+            print(f"   (Run --build-summaries to generate summaries for these sources)")
 
-        print(f"✅ All {len(sources_with_summaries)} sources have summaries")
+        if not sources_with_summaries:
+            raise ValueError("No sources with Phase 1 summaries found. Run --build-summaries first.")
+
+        print(f"\n✅ Found {len(sources_with_summaries)} sources with summaries")
 
         # Phase 2: Export summary files
         print(f"\nPhase 2: Exporting summary files...")
@@ -1157,6 +1159,7 @@ collection: {collection_name}
             'project_name': project_name,
             'research_brief': research_brief,
             'total_sources': len(sources_with_summaries),
+            'skipped_sources': len(skipped_sources),
             'export_date': datetime.now().isoformat(),
             'zresearcher_version': '1.0.0',
             'batches': batch_manifest,
@@ -1180,6 +1183,8 @@ collection: {collection_name}
         print(f"{'='*80}")
         print(f"📊 Summary:")
         print(f"  • Sources exported: {len(sources_with_summaries)}")
+        if skipped_sources:
+            print(f"  • Sources skipped (no summary): {len(skipped_sources)}")
         print(f"  • Batches created: {len(batches)}")
         print(f"  • Full content exported: {include_full_content}")
         print(f"\n📁 Output structure:")
