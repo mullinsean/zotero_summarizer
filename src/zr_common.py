@@ -119,16 +119,16 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
         self.targeted_summary_char_limit = self.TARGETED_SUMMARY_CHAR_LIMIT
         self.relevance_threshold = 6
         self.max_sources = 50
-        self.use_sonnet = False
+        self.use_haiku = False  # Default to Sonnet (better for nuanced analysis)
         self.synthesis_enabled = True  # Default: enabled
 
         # LLM model configuration
         self.haiku_model = "claude-haiku-4-5-20251001"
         self.sonnet_model = "claude-sonnet-4-5-20250929"
 
-        # Default to Haiku for detailed summaries (cost-efficient)
-        # Use Sonnet only when use_sonnet=True in config (production mode)
-        self.summary_model = self.haiku_model
+        # Default to Sonnet for enhanced summaries (better quality)
+        # Use Haiku with use_haiku=true in config for cost savings
+        self.summary_model = self.sonnet_model
 
         # Initialize centralized LLM client for all API calls
         self.llm_client = ZRLLMClient(
@@ -206,9 +206,13 @@ max_sources=50
 # ============================================================
 # LLM Model Configuration
 # ============================================================
-use_sonnet=false
+# Model for Phase 1 summaries (build-summaries)
+# Default: Sonnet (better for nuanced project-aware analysis)
+# Set use_haiku=true to reduce cost (~12x cheaper, less nuanced)
+use_haiku=false
 haiku_model=claude-haiku-4-5
 sonnet_model=claude-sonnet-4-5
+# Note: use_sonnet is deprecated but still supported for backward compatibility
 
 # ============================================================
 # Research Synthesis
@@ -714,11 +718,21 @@ vector_embedding_model=all-MiniLM-L6-v2
             if validate_int_range(config['max_sources'], 1, 1000, 'max_sources'):
                 self.max_sources = config['max_sources']
 
-        if 'use_sonnet' in config:
+        # Handle use_haiku (new, preferred) and use_sonnet (deprecated, backward compat)
+        if 'use_haiku' in config:
+            if isinstance(config['use_haiku'], bool):
+                self.use_haiku = config['use_haiku']
+                # Update summary model based on use_haiku
+                self.summary_model = self.haiku_model if self.use_haiku else self.sonnet_model
+            elif self.verbose:
+                print(f"  ⚠️  Invalid use_haiku: must be true/false, got {config['use_haiku']}")
+        elif 'use_sonnet' in config:
+            # Backward compatibility: use_sonnet inverts to use_haiku
             if isinstance(config['use_sonnet'], bool):
-                self.use_sonnet = config['use_sonnet']
-                # Update summary model based on use_sonnet
-                self.summary_model = self.sonnet_model if self.use_sonnet else self.haiku_model
+                self.use_haiku = not config['use_sonnet']
+                self.summary_model = self.haiku_model if self.use_haiku else self.sonnet_model
+                if self.verbose:
+                    print(f"  ⚠️  use_sonnet is deprecated, use use_haiku instead")
             elif self.verbose:
                 print(f"  ⚠️  Invalid use_sonnet: must be true/false, got {config['use_sonnet']}")
 

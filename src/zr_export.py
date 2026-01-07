@@ -625,6 +625,139 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         year = self._extract_year(item)
         return f"{author}{year}"
 
+    def _parse_summary_note_for_export(self, summary_content: str) -> Dict:
+        """
+        Parse enhanced summary note content to extract structured fields for export.
+
+        Handles both plain text format (from LLM output) and markdown format.
+        Plain text format example:
+            Research Type: review
+            Temporal Status: current (context here)
+
+        Args:
+            summary_content: The summary note content
+
+        Returns:
+            Dict with extracted fields (with defaults for missing/old format notes)
+        """
+        result = {
+            # Classification
+            'research_type': 'unknown',
+            'project_role': 'supporting',
+            # Temporal fit
+            'temporal_status': 'current',
+            'temporal_context': '',
+            # Quality indicators
+            'peer_reviewed': 'unclear',
+            'evidence_strength': 'moderate',
+            'limitations': '',
+            'biases': '',
+            # Structural guidance
+            'relevant_sections': [],
+            'skip_sections': [],
+            # Key claims
+            'key_claims': [],
+            # Tags (from summary)
+            'tags': []
+        }
+
+        # Parse Classification section - handle both plain and markdown formats
+        # Plain: "Research Type: review" or Markdown: "**Research Type**: review"
+        research_match = re.search(r'(?:\*\*)?Research Type(?:\*\*)?:\s*(\w+)', summary_content, re.IGNORECASE)
+        if research_match:
+            result['research_type'] = research_match.group(1).lower()
+
+        role_match = re.search(r'(?:\*\*)?Project Role(?:\*\*)?:\s*(\w+)', summary_content, re.IGNORECASE)
+        if role_match:
+            result['project_role'] = role_match.group(1).lower()
+
+        # Parse Temporal Status - format: "status (context)" or just "status"
+        # The context can be multi-line and contain parentheses
+        temporal_match = re.search(r'(?:\*\*)?Temporal Status(?:\*\*)?:\s*(\w+)(?:\s*\((.+?)\))?(?=\n\n|\nQuality|\n(?:\*\*)?Peer|\Z)', summary_content, re.IGNORECASE | re.DOTALL)
+        if temporal_match:
+            result['temporal_status'] = temporal_match.group(1).lower()
+            if temporal_match.group(2):
+                result['temporal_context'] = temporal_match.group(2).strip()
+
+        # Parse Quality Assessment
+        peer_match = re.search(r'(?:\*\*)?Peer Reviewed(?:\*\*)?:\s*(\w+)', summary_content, re.IGNORECASE)
+        if peer_match:
+            result['peer_reviewed'] = peer_match.group(1).lower()
+
+        strength_match = re.search(r'(?:\*\*)?Evidence Strength(?:\*\*)?:\s*(\w+)', summary_content, re.IGNORECASE)
+        if strength_match:
+            result['evidence_strength'] = strength_match.group(1).lower()
+
+        # Limitations - capture until next field or section
+        limitations_match = re.search(r'(?:\*\*)?Limitations(?:\*\*)?:\s*(.+?)(?=\n(?:\*\*)?Potential Biases|\nTags|\nSummary|\n##|\Z)', summary_content, re.IGNORECASE | re.DOTALL)
+        if limitations_match:
+            limitations_text = limitations_match.group(1).strip()
+            if limitations_text.lower() not in ['not stated', 'none', 'n/a']:
+                result['limitations'] = limitations_text
+
+        # Potential Biases
+        biases_match = re.search(r'(?:\*\*)?Potential Biases(?:\*\*)?:\s*(.+?)(?=\nTags|\nSummary|\n##|\Z)', summary_content, re.IGNORECASE | re.DOTALL)
+        if biases_match:
+            biases_text = biases_match.group(1).strip()
+            if biases_text.lower() not in ['none identified', 'none', 'n/a']:
+                result['biases'] = biases_text
+
+        # Parse Tags section - line after "Tags" header contains comma-separated tags
+        tags_match = re.search(r'\nTags\n(.+?)(?=\nSummary|\n##|\Z)', summary_content, re.DOTALL)
+        if tags_match:
+            tags_line = tags_match.group(1).strip().split('\n')[0]  # Get first line after Tags header
+            if tags_line:
+                result['tags'] = [t.strip() for t in tags_line.split(',') if t.strip()]
+
+        # Parse Structural Guidance
+        relevant_match = re.search(r'(?:\*\*)?Most Relevant Sections(?:\*\*)?:\s*(.+?)(?=\n(?:\*\*)?Sections to Skip|\nKey Claims|\n##|\nCreated:|\Z)', summary_content, re.IGNORECASE | re.DOTALL)
+        if relevant_match:
+            sections_str = relevant_match.group(1).strip()
+            if sections_str and sections_str.lower() not in ['not specified', 'none', 'n/a']:
+                # Handle both comma-separated and the actual format which may have complex section names
+                result['relevant_sections'] = [s.strip() for s in re.split(r',\s*(?=[A-Z]|\d|Box|Chapter|Section|Figure)', sections_str) if s.strip()]
+
+        skip_match = re.search(r'(?:\*\*)?Sections to Skip(?:\*\*)?:\s*(.+?)(?=\nKey Claims|\n##|\nCreated:|\Z)', summary_content, re.IGNORECASE | re.DOTALL)
+        if skip_match:
+            sections_str = skip_match.group(1).strip()
+            if sections_str and sections_str.lower() not in ['none', 'n/a']:
+                result['skip_sections'] = [s.strip() for s in re.split(r',\s*(?=[A-Z]|\d|Box|Chapter|Section|Figure)', sections_str) if s.strip()]
+
+        # Parse Key Claims section - format: "[Q1, Q2] claim text" or just numbered claims
+        claims_match = re.search(r'Key Claims\n(.+?)(?=\nCreated:|\n---|\Z)', summary_content, re.DOTALL)
+        if claims_match:
+            claims_text = claims_match.group(1).strip()
+            if claims_text.lower() not in ['none extracted', 'none', 'n/a']:
+                # Split by numbered items - claims start with [Qn] or just the claim text
+                # Pattern: optional [Q1, Q2] followed by claim text
+                claim_lines = re.split(r'\n(?=\[Q|\d+\.)', claims_text)
+                for line in claim_lines:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    # Extract question links [Q1, Q2] and claim text
+                    q_match = re.match(r'(?:\d+\.\s*)?\[([^\]]+)\]\s*(.+)', line, re.DOTALL)
+                    if q_match:
+                        q_links_str = q_match.group(1)
+                        claim_text = q_match.group(2).strip()
+                        q_numbers = re.findall(r'Q(\d+)', q_links_str)
+                        questions = [int(q) for q in q_numbers]
+                        if claim_text:
+                            result['key_claims'].append({
+                                'claim': claim_text,
+                                'linked_questions': questions
+                            })
+                    else:
+                        # Claim without question links
+                        claim_text = re.sub(r'^\d+\.\s*', '', line).strip()
+                        if claim_text:
+                            result['key_claims'].append({
+                                'claim': claim_text,
+                                'linked_questions': []
+                            })
+
+        return result
+
     def export_source_directory(
         self,
         collection_key: str,
@@ -984,18 +1117,19 @@ collection: {collection_name}
         except Exception:
             collection_name = collection_key
 
-        # Load research brief if available
-        research_brief = ""
+        # Load project overview (project brief) if available
+        project_brief = ""
         try:
             self.project_name = project_name
             subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
             if subcollection_key:
                 notes = self.get_collection_notes(subcollection_key)
+                project_overview_title = self._get_project_overview_note_title()
                 for note in notes:
                     note_html = note['data'].get('note', '')
                     note_title = self.get_note_title_from_html(note_html)
-                    if '【Research Brief】' in note_title:
-                        research_brief = self.extract_text_from_note_html(note_html)
+                    if project_overview_title in note_title:
+                        project_brief = self.extract_text_from_note_html(note_html)
                         break
         except Exception:
             pass
@@ -1038,6 +1172,9 @@ collection: {collection_name}
             # Estimate tokens (rough: words * 1.3)
             token_estimate = int(len(summary_content.split()) * 1.3)
 
+            # Parse enhanced fields from summary (with defaults for old format)
+            parsed_summary = self._parse_summary_note_for_export(summary_content)
+
             sources_with_summaries.append({
                 'item_key': item_key,
                 'citekey': citekey,
@@ -1047,10 +1184,16 @@ collection: {collection_name}
                 'metadata': metadata,
                 'authors': authors,
                 'year': year,
-                'item': item
+                'item': item,
+                'parsed': parsed_summary  # Include parsed fields
             })
 
-            # Build citation index entry
+            # Use LLM-assigned tags from summary if available, otherwise fall back to Zotero tags
+            summary_tags = parsed_summary.get('tags', [])
+            zotero_tags = [tag['tag'] for tag in item_data.get('tags', [])]
+            tags = summary_tags if summary_tags else zotero_tags
+
+            # Build citation index entry with enhanced fields
             citation_index[item_key] = {
                 'title': item_title,
                 'authors': authors,
@@ -1059,9 +1202,28 @@ collection: {collection_name}
                 'url': item_data.get('url', ''),
                 'zotero_link': f"zotero://select/items/{item_key}",
                 'item_type': item_data.get('itemType', 'unknown'),
-                'tags': [tag['tag'] for tag in item_data.get('tags', [])],
+                'tags': tags,
                 'summary_file': None,  # Will be filled in
-                'content_file': None   # Will be filled in if include_full_content
+                'content_file': None,  # Will be filled in if include_full_content
+
+                # Enhanced classification fields
+                'research_type': parsed_summary['research_type'],
+                'project_role': parsed_summary['project_role'],
+                'temporal_fit': {
+                    'status': parsed_summary['temporal_status'],
+                    'context': parsed_summary['temporal_context']
+                },
+                'quality': {
+                    'peer_reviewed': parsed_summary['peer_reviewed'],
+                    'evidence_strength': parsed_summary['evidence_strength'],
+                    'limitations': parsed_summary['limitations'],
+                    'biases': parsed_summary['biases']
+                },
+                'structural_guidance': {
+                    'relevant_sections': parsed_summary['relevant_sections'],
+                    'skip_sections': parsed_summary['skip_sections']
+                },
+                'key_claims': parsed_summary['key_claims']
             }
 
         # Report skipped sources
@@ -1157,7 +1319,7 @@ collection: {collection_name}
             'collection_key': collection_key,
             'collection_name': collection_name,
             'project_name': project_name,
-            'research_brief': research_brief,
+            'project_brief': project_brief,
             'total_sources': len(sources_with_summaries),
             'skipped_sources': len(skipped_sources),
             'export_date': datetime.now().isoformat(),

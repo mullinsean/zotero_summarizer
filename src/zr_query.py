@@ -48,25 +48,39 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
 
     def parse_general_summary_note(self, note_content: str) -> Optional[Dict]:
         """
-        Parse a structured general summary note.
+        Parse a structured general summary note (supports both old and enhanced formats).
 
         Args:
             note_content: The note content (HTML or plain text)
 
         Returns:
-            Dict with 'metadata', 'tags', and 'summary' keys, or None if parsing fails
+            Dict with 'metadata', 'tags', 'summary', and enhanced fields, or None if parsing fails
         """
         try:
             # Strip HTML if present
             from bs4 import BeautifulSoup
+            import re
+
             soup = BeautifulSoup(note_content, 'html.parser')
             text = soup.get_text()
 
-            # Initialize result
+            # Initialize result with defaults for enhanced fields
             result = {
                 'metadata': {},
                 'tags': [],
-                'summary': ''
+                'summary': '',
+                # Enhanced fields (with defaults for old format notes)
+                'research_type': 'unknown',
+                'project_role': 'supporting',
+                'temporal_status': 'current',
+                'temporal_context': '',
+                'peer_reviewed': 'unclear',
+                'evidence_strength': 'moderate',
+                'limitations': '',
+                'biases': '',
+                'relevant_sections': '',
+                'skip_sections': '',
+                'key_claims': []
             }
 
             # After HTML->text conversion, markdown "## Heading" becomes just "Heading"
@@ -83,8 +97,10 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
                     metadata_section = parts[1]
                     if tags_marker in metadata_section:
                         metadata_section = metadata_section.split(tags_marker)[0]
+                    # Also check for Classification marker (new format)
+                    if 'Classification' in metadata_section:
+                        metadata_section = metadata_section.split('Classification')[0]
 
-                    import re
                     # Look for both markdown bold (**) and plain text patterns
                     result['metadata']['title'] = re.search(r'(?:\*\*)?Title(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
                     result['metadata']['title'] = result['metadata']['title'].group(1).strip() if result['metadata']['title'] else ''
@@ -104,6 +120,41 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
                     result['metadata']['url'] = re.search(r'(?:\*\*)?URL(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
                     result['metadata']['url'] = result['metadata']['url'].group(1).strip() if result['metadata']['url'] else ''
 
+            # Parse Classification section (new format)
+            if 'Classification' in text:
+                classification_match = re.search(r'Classification(.+?)(?=Quality Assessment|Tags|Summary|$)', text, re.DOTALL)
+                if classification_match:
+                    section = classification_match.group(1)
+                    research_match = re.search(r'Research Type:?\s*(\w+)', section)
+                    if research_match:
+                        result['research_type'] = research_match.group(1).lower()
+                    role_match = re.search(r'Project Role:?\s*(\w+)', section)
+                    if role_match:
+                        result['project_role'] = role_match.group(1).lower()
+                    temporal_match = re.search(r'Temporal Status:?\s*(\w+)(?:\s*\(([^)]+)\))?', section)
+                    if temporal_match:
+                        result['temporal_status'] = temporal_match.group(1).lower()
+                        if temporal_match.group(2):
+                            result['temporal_context'] = temporal_match.group(2).strip()
+
+            # Parse Quality Assessment section (new format)
+            if 'Quality Assessment' in text:
+                quality_match = re.search(r'Quality Assessment(.+?)(?=Tags|Summary|Structural|$)', text, re.DOTALL)
+                if quality_match:
+                    section = quality_match.group(1)
+                    peer_match = re.search(r'Peer Reviewed:?\s*(\w+)', section)
+                    if peer_match:
+                        result['peer_reviewed'] = peer_match.group(1).lower()
+                    strength_match = re.search(r'Evidence Strength:?\s*(\w+)', section)
+                    if strength_match:
+                        result['evidence_strength'] = strength_match.group(1).lower()
+                    limitations_match = re.search(r'Limitations:?\s*(.+?)(?=Potential Biases|$)', section, re.DOTALL)
+                    if limitations_match:
+                        result['limitations'] = limitations_match.group(1).strip()
+                    biases_match = re.search(r'Potential Biases:?\s*(.+?)(?=$)', section, re.DOTALL)
+                    if biases_match:
+                        result['biases'] = biases_match.group(1).strip()
+
             # Parse tags section
             if tags_marker in text:
                 parts = text.split(tags_marker)
@@ -121,9 +172,44 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
                 parts = text.split(summary_marker)
                 if len(parts) > 1:
                     summary_section = parts[1]
-                    if '---' in summary_section:
-                        summary_section = summary_section.split('---')[0]
+                    # Stop at Structural Guidance or Key Claims (new format) or --- (footer)
+                    for stop_marker in ['Structural Guidance', 'Key Claims', '---']:
+                        if stop_marker in summary_section:
+                            summary_section = summary_section.split(stop_marker)[0]
+                            break
                     result['summary'] = summary_section.strip()
+
+            # Parse Structural Guidance section (new format)
+            if 'Structural Guidance' in text:
+                struct_match = re.search(r'Structural Guidance(.+?)(?=Key Claims|---|$)', text, re.DOTALL)
+                if struct_match:
+                    section = struct_match.group(1)
+                    relevant_match = re.search(r'Most Relevant Sections:?\s*(.+?)(?=Sections to Skip|$)', section, re.DOTALL)
+                    if relevant_match:
+                        result['relevant_sections'] = relevant_match.group(1).strip()
+                    skip_match = re.search(r'Sections to Skip:?\s*(.+?)(?=$)', section, re.DOTALL)
+                    if skip_match:
+                        result['skip_sections'] = skip_match.group(1).strip()
+
+            # Parse Key Claims section (new format)
+            if 'Key Claims' in text:
+                claims_match = re.search(r'Key Claims(.+?)(?=---|$)', text, re.DOTALL)
+                if claims_match:
+                    claims_text = claims_match.group(1).strip()
+                    if claims_text.lower() != 'none extracted':
+                        claim_pattern = re.compile(r'^\s*\d+\.\s*(?:\[([^\]]+)\])?\s*(.+?)(?=\n\d+\.|\Z)', re.MULTILINE | re.DOTALL)
+                        for match in claim_pattern.finditer(claims_text):
+                            q_links_str = match.group(1)
+                            claim_text = match.group(2).strip()
+                            questions = []
+                            if q_links_str:
+                                q_numbers = re.findall(r'Q(\d+)', q_links_str)
+                                questions = [int(q) for q in q_numbers]
+                            if claim_text:
+                                result['key_claims'].append({
+                                    'claim': claim_text,
+                                    'questions': questions
+                                })
 
             return result
 

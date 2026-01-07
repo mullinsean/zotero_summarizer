@@ -105,8 +105,8 @@ Examples:
   python zresearcher.py --export-vault --collection KEY --project "AI Productivity" --output-dir ./exports/
 
   # Export: Export for Claude Code multi-agent skill (requires --build-summaries first)
-  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity" --output-dir ./claude_data/
-  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity" --output-dir ./ --include-full
+  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity"  # outputs to ./claude-export/
+  python zresearcher.py --export-for-claude --collection KEY --project "AI Productivity" --output-dir ./custom/ --include-full
 
   # Cache: Sync collection to local cache (required before offline use)
   python zresearcher.py --sync --collection KEY
@@ -896,14 +896,16 @@ Examples:
     if args.export_for_claude:
         if not project_name:
             print("Error: --project is required for --export-for-claude")
-            print("Example: zr --export-for-claude --collection KEY --project \"My Project\" --output ./claude_data/")
+            print("Example: zr --export-for-claude --collection KEY --project \"My Project\" --output ./claude-export/")
             return
 
-        # Determine output directory
+        # Determine output directory (default to ./claude-export for this command)
         if args.output_file:
             output_dir = args.output_file
-        else:
+        elif args.output_dir != './notebooklm_export':  # User explicitly set --output-dir
             output_dir = args.output_dir
+        else:
+            output_dir = './claude-export'
 
         exporter = ZoteroNotebookLMExporter(
             library_id,
