@@ -1081,18 +1081,19 @@ collection: {collection_name}
         except Exception:
             collection_name = collection_key
 
-        # Load research brief if available
-        research_brief = ""
+        # Load project overview (project brief) if available
+        project_brief = ""
         try:
             self.project_name = project_name
             subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
             if subcollection_key:
                 notes = self.get_collection_notes(subcollection_key)
+                project_overview_title = self._get_project_overview_note_title()
                 for note in notes:
                     note_html = note['data'].get('note', '')
                     note_title = self.get_note_title_from_html(note_html)
-                    if '【Research Brief】' in note_title:
-                        research_brief = self.extract_text_from_note_html(note_html)
+                    if project_overview_title in note_title:
+                        project_brief = self.extract_text_from_note_html(note_html)
                         break
         except Exception:
             pass
@@ -1277,7 +1278,7 @@ collection: {collection_name}
             'collection_key': collection_key,
             'collection_name': collection_name,
             'project_name': project_name,
-            'research_brief': research_brief,
+            'project_brief': project_brief,
             'total_sources': len(sources_with_summaries),
             'skipped_sources': len(skipped_sources),
             'export_date': datetime.now().isoformat(),
