@@ -385,7 +385,8 @@ Model: {model_used}
                 'id': item_data['item_key'],
                 'prompt': prompt,
                 'max_tokens': 4096,  # Increased for enhanced output
-                'model': self.summary_model
+                'model': self.summary_model,
+                'temperature': 0.3  # Lower temp for consistent structured output
             })
 
         # Step 3: Process batch with parallel LLM calls
@@ -436,50 +437,55 @@ Model: {model_used}
                     'key_claims': []
                 }
 
+                # Flexible header pattern: matches "FIELD:", "## FIELD:", "**FIELD:**", etc.
+                def flex_header(field: str) -> str:
+                    """Create regex pattern that matches field with optional markdown formatting."""
+                    return rf'(?:#{{1,3}}\s*)?(?:\*\*)?{field}(?:\*\*)?:?\s*'
+
                 # Parse SUMMARY (everything up to TAGS:)
-                summary_match = re.search(r'SUMMARY:\s*(.+?)(?=\nTAGS:)', response_text, re.DOTALL)
+                summary_match = re.search(flex_header('SUMMARY') + r'(.+?)(?=\n(?:#{1,3}\s*)?(?:\*\*)?TAGS)', response_text, re.DOTALL)
                 result['summary'] = summary_match.group(1).strip() if summary_match else ''
 
                 # Parse TAGS (up to DOCUMENT_TYPE:)
-                tags_match = re.search(r'TAGS:\s*(.+?)(?=\nDOCUMENT_TYPE:)', response_text, re.DOTALL)
+                tags_match = re.search(flex_header('TAGS') + r'(.+?)(?=\n(?:#{1,3}\s*)?(?:\*\*)?DOCUMENT_TYPE)', response_text, re.DOTALL)
                 if tags_match:
                     tags_str = tags_match.group(1).strip()
                     result['tags'] = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
 
                 # Parse DOCUMENT_TYPE (up to SOURCE_TYPE:)
-                type_match = re.search(r'DOCUMENT_TYPE:\s*(.+?)(?=\nSOURCE_TYPE:)', response_text, re.DOTALL)
+                type_match = re.search(flex_header('DOCUMENT_TYPE') + r'(.+?)(?=\n(?:#{1,3}\s*)?(?:\*\*)?SOURCE_TYPE)', response_text, re.DOTALL)
                 result['document_type'] = type_match.group(1).strip() if type_match else 'Unknown'
 
                 # Parse SOURCE_TYPE (up to RESEARCH_TYPE:)
-                source_type_match = re.search(r'SOURCE_TYPE:\s*(\S+)', response_text)
+                source_type_match = re.search(flex_header('SOURCE_TYPE') + r'([\w-]+)', response_text)
                 if source_type_match:
                     val = source_type_match.group(1).strip().lower()
                     result['source_type'] = val if val in VALID_SOURCE_TYPES else 'other'
 
                 # Parse RESEARCH_TYPE (up to PROJECT_ROLE:)
-                research_match = re.search(r'RESEARCH_TYPE:\s*(\w+)', response_text)
+                research_match = re.search(flex_header('RESEARCH_TYPE') + r'(\w+)', response_text)
                 if research_match:
                     val = research_match.group(1).strip().lower()
                     result['research_type'] = val if val in VALID_RESEARCH_TYPES else 'unknown'
 
                 # Parse PROJECT_ROLE (up to STRUCTURAL_GUIDANCE:)
-                role_match = re.search(r'PROJECT_ROLE:\s*(\w+)', response_text)
+                role_match = re.search(flex_header('PROJECT_ROLE') + r'(\w+)', response_text)
                 if role_match:
                     val = role_match.group(1).strip().lower()
                     result['project_role'] = val if val in VALID_PROJECT_ROLES else 'supporting'
 
-                # Parse STRUCTURAL_GUIDANCE
+                # Parse STRUCTURAL_GUIDANCE - handle markdown sub-headers
                 struct_match = re.search(
-                    r'STRUCTURAL_GUIDANCE:\s*\n?Most Relevant Sections:\s*(.+?)\n\s*Sections to Skip:\s*(.+?)(?=\n\n|\nQUALITY_INDICATORS:)',
+                    flex_header('STRUCTURAL_GUIDANCE') + r'\n?(?:[-*]\s*)?(?:\*\*)?Most Relevant Sections(?:\*\*)?:?\s*(.+?)\n\s*(?:[-*]\s*)?(?:\*\*)?Sections to Skip(?:\*\*)?:?\s*(.+?)(?=\n\n|\n(?:#|(?:\*\*)?QUALITY))',
                     response_text, re.DOTALL
                 )
                 if struct_match:
                     result['relevant_sections'] = struct_match.group(1).strip()
                     result['skip_sections'] = struct_match.group(2).strip()
 
-                # Parse QUALITY_INDICATORS
+                # Parse QUALITY_INDICATORS - handle markdown formatting
                 quality_match = re.search(
-                    r'QUALITY_INDICATORS:\s*\n?Peer Reviewed:\s*(\w+)\s*\n?\s*Evidence Strength:\s*(\w+)\s*\n?\s*Limitations:\s*(.+?)\n\s*Potential Biases:\s*(.+?)(?=\n\n|\nTEMPORAL_FIT:)',
+                    flex_header('QUALITY_INDICATORS') + r'\n?(?:[-*]\s*)?(?:\*\*)?Peer Reviewed(?:\*\*)?:?\s*(\w+)\s*\n?\s*(?:[-*]\s*)?(?:\*\*)?Evidence Strength(?:\*\*)?:?\s*(\w+)\s*\n?\s*(?:[-*]\s*)?(?:\*\*)?Limitations(?:\*\*)?:?\s*(.+?)\n\s*(?:[-*]\s*)?(?:\*\*)?Potential Biases(?:\*\*)?:?\s*(.+?)(?=\n\n|\n(?:#|(?:\*\*)?TEMPORAL))',
                     response_text, re.DOTALL
                 )
                 if quality_match:
@@ -492,9 +498,9 @@ Model: {model_used}
                     result['limitations'] = quality_match.group(3).strip()
                     result['biases'] = quality_match.group(4).strip()
 
-                # Parse TEMPORAL_FIT
+                # Parse TEMPORAL_FIT - handle markdown formatting
                 temporal_match = re.search(
-                    r'TEMPORAL_FIT:\s*\n?Status:\s*(\w+).*?\n\s*Context:\s*(.+?)(?=\n\n|\nKEY_CLAIMS:)',
+                    flex_header('TEMPORAL_FIT') + r'\n?(?:[-*]\s*)?(?:\*\*)?Status(?:\*\*)?:?\s*(\w+).*?\n\s*(?:[-*]\s*)?(?:\*\*)?Context(?:\*\*)?:?\s*(.+?)(?=\n\n|\n(?:#|(?:\*\*)?KEY_CLAIMS))',
                     response_text, re.DOTALL
                 )
                 if temporal_match:
@@ -502,8 +508,8 @@ Model: {model_used}
                     result['temporal_status'] = status_val if status_val in VALID_TEMPORAL_STATUS else 'current'
                     result['temporal_context'] = temporal_match.group(2).strip()
 
-                # Parse KEY_CLAIMS
-                claims_match = re.search(r'KEY_CLAIMS:\s*\n(.+?)(?:\n---|\Z)', response_text, re.DOTALL)
+                # Parse KEY_CLAIMS - handle markdown formatting
+                claims_match = re.search(flex_header('KEY_CLAIMS') + r'\n(.+?)(?:\n---|\Z)', response_text, re.DOTALL)
                 if claims_match:
                     claims_text = claims_match.group(1).strip()
                     # Parse numbered claims with optional [Qn] notation
@@ -522,10 +528,17 @@ Model: {model_used}
                                 'questions': questions
                             })
 
-                return result if result['summary'] else None
+                if result['summary']:
+                    return result
+                else:
+                    if self.verbose:
+                        # Show first 500 chars of response to help debug
+                        preview = response_text[:500] if response_text else "(empty)"
+                        print(f"\n  ⚠️  Empty summary - response preview: {preview}...")
+                    return None
             except Exception as e:
                 if self.verbose:
-                    print(f"  ⚠️  Parse error: {e}")
+                    print(f"\n  ⚠️  Parse error: {e}")
                 return None
 
         batch_results = self.llm_client.call_batch_with_parsing(

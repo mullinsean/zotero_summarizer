@@ -75,12 +75,12 @@ class ZRLLMClient:
                 return response.content[0].text.strip()
             else:
                 if self.verbose:
-                    print(f"  ⚠️  Empty response from LLM")
+                    print(f"\n  ⚠️  Empty response from LLM (response.content was empty)")
                 return None
 
         except Exception as e:
             if self.verbose:
-                print(f"  ❌ LLM call error: {e}")
+                print(f"\n  ❌ LLM call error ({type(e).__name__}): {e}")
             return None
 
     def call_batch(
@@ -185,9 +185,11 @@ class ZRLLMClient:
                     parsed_results[request_id] = parser(response_text)
                 except Exception as e:
                     if self.verbose:
-                        print(f"  ⚠️  Error parsing response for {request_id}: {e}")
+                        print(f"\n  ⚠️  Error parsing response for {request_id}: {e}")
                     parsed_results[request_id] = None
             else:
+                if self.verbose:
+                    print(f"\n  ⚠️  No response received for {request_id} (API call failed or returned empty)")
                 parsed_results[request_id] = None
 
         return parsed_results
