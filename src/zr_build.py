@@ -101,6 +101,7 @@ class ZoteroResearcherBuilder(ZoteroResearcherBase):
         tags: List[str],
         summary: str,
         document_type: str,
+        source_type: str = "other",
         research_type: str = "unknown",
         project_role: str = "supporting",
         temporal_status: str = "current",
@@ -122,6 +123,7 @@ class ZoteroResearcherBuilder(ZoteroResearcherBase):
             tags: List of assigned tags
             summary: Summary text
             document_type: Document type (determined by LLM)
+            source_type: Source type (report, article, primary-source, etc.)
             research_type: Type of research (empirical, theoretical, review, etc.)
             project_role: Role in project (background, core_evidence, etc.)
             temporal_status: Temporal fit (current, dated, foundational)
@@ -170,6 +172,7 @@ class ZoteroResearcherBuilder(ZoteroResearcherBase):
 - **Date**: {metadata.get('date', 'Unknown')}
 - **Publication**: {metadata.get('publication', 'N/A')}
 - **Type**: {document_type}
+- **Source Type**: {source_type}
 - **URL**: {metadata.get('url', 'N/A')}
 
 ## Classification
@@ -397,6 +400,7 @@ Model: {model_used}
             """Parse enhanced SUMMARY/TAGS/DOCUMENT_TYPE/... format with all new fields."""
             try:
                 # Valid values for controlled vocabularies
+                VALID_SOURCE_TYPES = ['report', 'article', 'primary-source', 'interview', 'llm-generated', 'blog-opinion', 'other']
                 VALID_RESEARCH_TYPES = ['empirical', 'theoretical', 'review', 'primary_source', 'commentary']
                 VALID_PROJECT_ROLES = ['background', 'core_evidence', 'methodology', 'counterargument', 'supporting']
                 VALID_PEER_REVIEWED = ['yes', 'no', 'unclear']
@@ -408,6 +412,7 @@ Model: {model_used}
                     'summary': '',
                     'tags': [],
                     'document_type': 'Unknown',
+                    'source_type': 'other',
 
                     # New classification fields
                     'research_type': 'unknown',
@@ -441,9 +446,15 @@ Model: {model_used}
                     tags_str = tags_match.group(1).strip()
                     result['tags'] = [tag.strip() for tag in tags_str.split(',') if tag.strip()]
 
-                # Parse DOCUMENT_TYPE (up to RESEARCH_TYPE:)
-                type_match = re.search(r'DOCUMENT_TYPE:\s*(.+?)(?=\nRESEARCH_TYPE:)', response_text, re.DOTALL)
+                # Parse DOCUMENT_TYPE (up to SOURCE_TYPE:)
+                type_match = re.search(r'DOCUMENT_TYPE:\s*(.+?)(?=\nSOURCE_TYPE:)', response_text, re.DOTALL)
                 result['document_type'] = type_match.group(1).strip() if type_match else 'Unknown'
+
+                # Parse SOURCE_TYPE (up to RESEARCH_TYPE:)
+                source_type_match = re.search(r'SOURCE_TYPE:\s*(\S+)', response_text)
+                if source_type_match:
+                    val = source_type_match.group(1).strip().lower()
+                    result['source_type'] = val if val in VALID_SOURCE_TYPES else 'other'
 
                 # Parse RESEARCH_TYPE (up to PROJECT_ROLE:)
                 research_match = re.search(r'RESEARCH_TYPE:\s*(\w+)', response_text)
@@ -555,6 +566,7 @@ Model: {model_used}
                     tags=summary_data['tags'],
                     summary=summary_data['summary'],
                     document_type=summary_data['document_type'],
+                    source_type=summary_data.get('source_type', 'other'),
                     research_type=summary_data.get('research_type', 'unknown'),
                     project_role=summary_data.get('project_role', 'supporting'),
                     temporal_status=summary_data.get('temporal_status', 'current'),
