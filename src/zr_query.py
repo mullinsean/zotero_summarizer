@@ -70,6 +70,7 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
                 'tags': [],
                 'summary': '',
                 # Enhanced fields (with defaults for old format notes)
+                'source_type': 'other',
                 'research_type': 'unknown',
                 'project_role': 'supporting',
                 'temporal_status': 'current',
@@ -116,6 +117,11 @@ class ZoteroResearcherQuerier(ZoteroResearcherBase):
 
                     result['metadata']['type'] = re.search(r'(?:\*\*)?Type(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
                     result['metadata']['type'] = result['metadata']['type'].group(1).strip() if result['metadata']['type'] else ''
+
+                    # Parse Source Type (handle hyphenated values like "primary-source")
+                    source_type_match = re.search(r'(?:\*\*)?Source Type(?:\*\*)?:?\s*([\w-]+)', metadata_section)
+                    if source_type_match:
+                        result['source_type'] = source_type_match.group(1).lower()
 
                     result['metadata']['url'] = re.search(r'(?:\*\*)?URL(?:\*\*)?:?\s*(.+?)(?:\n|$)', metadata_section)
                     result['metadata']['url'] = result['metadata']['url'].group(1).strip() if result['metadata']['url'] else ''

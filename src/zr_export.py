@@ -641,6 +641,8 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
             Dict with extracted fields (with defaults for missing/old format notes)
         """
         result = {
+            # Source type
+            'source_type': 'other',
             # Classification
             'research_type': 'unknown',
             'project_role': 'supporting',
@@ -660,6 +662,11 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
             # Tags (from summary)
             'tags': []
         }
+
+        # Parse Source Type - handle hyphenated values like "primary-source", "blog-opinion"
+        source_type_match = re.search(r'(?:\*\*)?Source Type(?:\*\*)?:\s*([\w-]+)', summary_content, re.IGNORECASE)
+        if source_type_match:
+            result['source_type'] = source_type_match.group(1).lower()
 
         # Parse Classification section - handle both plain and markdown formats
         # Plain: "Research Type: review" or Markdown: "**Research Type**: review"
@@ -1202,6 +1209,7 @@ collection: {collection_name}
                 'url': item_data.get('url', ''),
                 'zotero_link': f"zotero://select/items/{item_key}",
                 'item_type': item_data.get('itemType', 'unknown'),
+                'source_type': parsed_summary['source_type'],
                 'tags': tags,
                 'summary_file': None,  # Will be filled in
                 'content_file': None,  # Will be filled in if include_full_content

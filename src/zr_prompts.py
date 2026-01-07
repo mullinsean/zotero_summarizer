@@ -97,6 +97,16 @@ TAGS:
 DOCUMENT_TYPE:
 <specific document type: e.g., journal article, government report, news article, white paper, blog post, speech transcript, dataset documentation, book chapter, etc.>
 
+SOURCE_TYPE:
+<exactly one of: report | article | primary-source | interview | LLM-generated | blog-opinion | other>
+- report: Policy reports, white papers, technical reports, organizational publications
+- article: Journal articles, news articles, magazine pieces
+- primary-source: Original documents, speeches, raw data, official statements, legislation
+- interview: Interview transcripts, Q&A sessions
+- LLM-generated: AI-generated content, chatbot outputs
+- blog-opinion: Blog posts, op-eds, opinion pieces, commentary
+- other: Sources that don't fit above categories
+
 RESEARCH_TYPE:
 <exactly one of: empirical | theoretical | review | primary_source | commentary>
 - empirical: Original data collection/analysis (surveys, experiments, case studies)
