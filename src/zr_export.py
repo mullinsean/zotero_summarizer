@@ -2,14 +2,20 @@
 """
 ZoteroResearcher Export Module
 
-Handles exporting collections to NotebookLM format (PDFs, TXT, and Markdown).
+Handles exporting collections to various formats:
+- NotebookLM format (PDFs, TXT, and Markdown)
+- Source directory tables for report-system
+- Vault exports with YAML frontmatter
+- Claude Code multi-agent exports with batching
 """
 
+import json
 import os
 import re
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, List, Set
+from typing import Optional, Dict, List, Set, Any
 
 # Handle both relative and absolute imports
 try:
@@ -564,3 +570,631 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         print(f"\n📁 Files saved to: {output_path.absolute()}")
 
         return stats
+
+    def _format_authors_for_table(self, item: Dict) -> str:
+        """Format authors for table display (shortened form)."""
+        item_data = item['data']
+        creators = item_data.get('creators', [])
+        if not creators:
+            return 'Unknown'
+
+        # Get first author
+        first = creators[0]
+        if 'lastName' in first:
+            name = first['lastName']
+        elif 'name' in first:
+            name = first['name'].split()[-1] if first['name'] else 'Unknown'
+        else:
+            name = 'Unknown'
+
+        # Add "et al." if multiple authors
+        if len(creators) > 1:
+            return f"{name} et al."
+        return name
+
+    def _format_authors_list(self, item: Dict) -> List[str]:
+        """Format authors as a list for YAML frontmatter."""
+        item_data = item['data']
+        creators = item_data.get('creators', [])
+        authors = []
+        for creator in creators:
+            if 'lastName' in creator:
+                if 'firstName' in creator:
+                    authors.append(f"{creator['lastName']}, {creator['firstName']}")
+                else:
+                    authors.append(creator['lastName'])
+            elif 'name' in creator:
+                authors.append(creator['name'])
+        return authors if authors else ['Unknown']
+
+    def _extract_year(self, item: Dict) -> str:
+        """Extract year from item date."""
+        date = item['data'].get('date', '')
+        if date:
+            # Try to extract 4-digit year
+            match = re.search(r'\b(\d{4})\b', date)
+            if match:
+                return match.group(1)
+        return 'n.d.'
+
+    def _generate_citekey(self, item: Dict) -> str:
+        """Generate a citation key (author + year format)."""
+        author = self._format_authors_for_table(item).replace(' et al.', '').lower()
+        # Remove special characters
+        author = re.sub(r'[^a-z]', '', author)
+        year = self._extract_year(item)
+        return f"{author}{year}"
+
+    def export_source_directory(
+        self,
+        collection_key: str,
+        output_path: str,
+        project_name: Optional[str] = None,
+        subcollections: Optional[List[str]] = None,
+        include_main: bool = False,
+        append: bool = False
+    ) -> Dict[str, int]:
+        """
+        Export source directory table for report-system vault.
+
+        Args:
+            collection_key: Zotero collection key
+            output_path: Output markdown file path
+            project_name: Optional project name filter
+            subcollections: Optional list of subcollection names to filter
+            include_main: If True, include main collection items when filtering subcollections
+            append: If True, append to existing file
+
+        Returns:
+            Dict with export statistics
+        """
+        print(f"\n{'='*80}")
+        print(f"EXPORTING SOURCE DIRECTORY")
+        print(f"{'='*80}\n")
+        print(f"Output: {output_path}")
+        if project_name:
+            print(f"Project filter: {project_name}")
+
+        # Get items from collection
+        items = self.get_items_to_process(
+            collection_key,
+            subcollections=subcollections,
+            include_main=include_main
+        )
+
+        if not items:
+            print("⚠️  No items found in collection")
+            return {'exported': 0, 'skipped': 0}
+
+        # Filter out notes and attachments
+        items = [i for i in items if i['data'].get('itemType') not in ['note', 'attachment']]
+        print(f"Found {len(items)} items to export\n")
+
+        stats = {'exported': 0, 'skipped': 0}
+
+        # Get collection name
+        try:
+            collection = self.zot.collection(collection_key)
+            collection_name = collection['data'].get('name', collection_key)
+        except Exception:
+            collection_name = collection_key
+
+        # Build table rows
+        rows = []
+        for item in items:
+            item_data = item['data']
+
+            # Skip if filtering by project and item doesn't have summary for this project
+            if project_name:
+                summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
+                children = self.zot.children(item['key'])
+                has_summary = any(
+                    child['data'].get('itemType') == 'note' and
+                    summary_note_prefix in self.get_note_title_from_html(child['data'].get('note', ''))
+                    for child in children
+                )
+                if not has_summary:
+                    stats['skipped'] += 1
+                    continue
+
+            citekey = self._generate_citekey(item)
+            author = self._format_authors_for_table(item)
+            year = self._extract_year(item)
+            title = item_data.get('title', 'Untitled')
+            item_type = item_data.get('itemType', 'unknown')
+
+            rows.append(f"| {citekey} | {author} | {year} | {title} | {item_type} |")
+            stats['exported'] += 1
+
+        # Create output directory if needed
+        output_file_path = Path(output_path)
+        output_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate content
+        today = datetime.now().strftime('%Y-%m-%d')
+        content = f"""---
+title: Source Directory
+last_updated: {today}
+collection: {collection_name}
+---
+
+# Source Directory
+
+## Zotero Sources
+
+| Key | Author | Year | Title | Type |
+|-----|--------|------|-------|------|
+"""
+        content += '\n'.join(rows) + '\n'
+
+        # Write to file
+        mode = 'a' if append else 'w'
+        with open(output_path, mode, encoding='utf-8') as f:
+            f.write(content)
+
+        print(f"\n✅ Exported {stats['exported']} sources to {output_path}")
+        if stats['skipped'] > 0:
+            print(f"⚠️  Skipped {stats['skipped']} items (no matching project summary)")
+
+        return stats
+
+    def export_to_vault(
+        self,
+        collection_key: str,
+        output_dir: str,
+        project_name: Optional[str] = None,
+        subcollections: Optional[List[str]] = None,
+        include_main: bool = False
+    ) -> Dict[str, int]:
+        """
+        Export individual source files with YAML frontmatter for vault integration.
+
+        Args:
+            collection_key: Zotero collection key
+            output_dir: Output directory path
+            project_name: Optional project name to include Phase 1 summaries
+            subcollections: Optional list of subcollection names to filter
+            include_main: If True, include main collection items when filtering subcollections
+
+        Returns:
+            Dict with export statistics
+        """
+        print(f"\n{'='*80}")
+        print(f"EXPORTING TO VAULT")
+        print(f"{'='*80}\n")
+        print(f"Output directory: {output_dir}")
+        if project_name:
+            print(f"Including summaries for project: {project_name}")
+
+        # Create output directory
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+
+        # Get items from collection
+        items = self.get_items_to_process(
+            collection_key,
+            subcollections=subcollections,
+            include_main=include_main
+        )
+
+        if not items:
+            print("⚠️  No items found in collection")
+            return {'exported': 0, 'skipped': 0, 'with_summary': 0}
+
+        # Filter out notes and attachments
+        items = [i for i in items if i['data'].get('itemType') not in ['note', 'attachment']]
+        print(f"Found {len(items)} items to export\n")
+
+        stats = {'exported': 0, 'skipped': 0, 'with_summary': 0}
+
+        for idx, item in enumerate(items, 1):
+            item_data = item['data']
+            item_key = item['key']
+            item_title = item_data.get('title', 'Untitled')
+
+            print(f"[{idx}/{len(items)}] {item_title[:60]}")
+
+            try:
+                # Build YAML frontmatter
+                citekey = self._generate_citekey(item)
+                authors = self._format_authors_list(item)
+                year = self._extract_year(item)
+
+                frontmatter = {
+                    'key': item_key,
+                    'citekey': citekey,
+                    'authors': authors,
+                    'year': year,
+                    'title': item_title,
+                    'type': item_data.get('itemType', 'unknown'),
+                    'publication': item_data.get('publicationTitle', item_data.get('bookTitle', '')),
+                    'doi': item_data.get('DOI', ''),
+                    'url': item_data.get('url', ''),
+                    'abstract': item_data.get('abstractNote', ''),
+                    'tags': [tag['tag'] for tag in item_data.get('tags', [])],
+                    'has_summary': False
+                }
+
+                # Get children (notes and attachments)
+                children = self.zot.children(item_key)
+
+                # Look for Phase 1 summary if project specified
+                summary_content = None
+                if project_name:
+                    summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
+                    for child in children:
+                        if child['data'].get('itemType') == 'note':
+                            note_html = child['data'].get('note', '')
+                            note_title = self.get_note_title_from_html(note_html)
+                            if summary_note_prefix in note_title:
+                                summary_content = self.extract_text_from_note_html(note_html)
+                                frontmatter['has_summary'] = True
+                                stats['with_summary'] += 1
+                                break
+
+                # Collect Zotero notes (non-summary notes)
+                zotero_notes = []
+                for child in children:
+                    if child['data'].get('itemType') == 'note':
+                        note_html = child['data'].get('note', '')
+                        note_title = self.get_note_title_from_html(note_html)
+                        # Skip ZResearcher notes
+                        if '【' not in note_title:
+                            note_text = self.extract_text_from_note_html(note_html)
+                            if note_text.strip():
+                                zotero_notes.append(note_text)
+
+                # Build markdown content
+                yaml_content = "---\n"
+                for key, value in frontmatter.items():
+                    if isinstance(value, list):
+                        if value:
+                            yaml_content += f"{key}:\n"
+                            for v in value:
+                                yaml_content += f"  - {v}\n"
+                        else:
+                            yaml_content += f"{key}: []\n"
+                    elif isinstance(value, bool):
+                        yaml_content += f"{key}: {str(value).lower()}\n"
+                    elif isinstance(value, str) and ('"' in value or '\n' in value or ':' in value):
+                        # Quote strings with special characters
+                        escaped = value.replace('"', '\\"').replace('\n', '\\n')
+                        yaml_content += f'{key}: "{escaped}"\n'
+                    elif value:
+                        yaml_content += f"{key}: {value}\n"
+                    else:
+                        yaml_content += f"{key}:\n"
+                yaml_content += "---\n\n"
+
+                md_content = yaml_content
+                md_content += f"# {item_title}\n\n"
+
+                if frontmatter['abstract']:
+                    md_content += "## Abstract\n\n"
+                    md_content += f"{frontmatter['abstract']}\n\n"
+
+                if zotero_notes:
+                    md_content += "## Zotero Notes\n\n"
+                    for note in zotero_notes:
+                        md_content += f"{note}\n\n"
+
+                if summary_content:
+                    md_content += "## Phase 1 Summary\n\n"
+                    md_content += f"{summary_content}\n\n"
+
+                # Generate filename
+                safe_title = self._sanitize_filename(item_title)
+                filename = f"{citekey}_{safe_title}.md"
+                filepath = output_path / filename
+
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    f.write(md_content)
+
+                stats['exported'] += 1
+                print(f"  ✓ Exported: {filename}")
+
+            except Exception as e:
+                print(f"  ⚠️  Error: {e}")
+                if self.verbose:
+                    import traceback
+                    traceback.print_exc()
+                stats['skipped'] += 1
+
+            # Rate limiting
+            if idx < len(items):
+                time.sleep(0.1)
+
+        # Print summary
+        print(f"\n{'='*80}")
+        print(f"EXPORT COMPLETE")
+        print(f"{'='*80}")
+        print(f"📊 Summary:")
+        print(f"  • Sources exported: {stats['exported']}")
+        print(f"  • With Phase 1 summary: {stats['with_summary']}")
+        print(f"  • Skipped (errors): {stats['skipped']}")
+        print(f"\n📁 Files saved to: {output_path.absolute()}")
+
+        return stats
+
+    def export_for_claude(
+        self,
+        collection_key: str,
+        output_dir: str,
+        project_name: str,
+        include_full_content: bool = False,
+        batch_tokens: int = 60000,
+        subcollections: Optional[List[str]] = None,
+        include_main: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Export collection data optimized for Claude Code skill consumption.
+
+        Prerequisites: All sources must have Phase 1 summaries for the specified project.
+
+        Args:
+            collection_key: Zotero collection key
+            output_dir: Output directory path
+            project_name: Project name (required - summaries must exist)
+            include_full_content: If True, also export full document content
+            batch_tokens: Target tokens per batch (default: 60000)
+            subcollections: Optional list of subcollection names to filter
+            include_main: If True, include main collection items when filtering subcollections
+
+        Returns:
+            Manifest dict on success
+
+        Raises:
+            ValueError: If summaries are missing for any source
+        """
+        print(f"\n{'='*80}")
+        print(f"EXPORTING FOR CLAUDE CODE")
+        print(f"{'='*80}\n")
+        print(f"Project: {project_name}")
+        print(f"Output directory: {output_dir}")
+        print(f"Include full content: {include_full_content}")
+        print(f"Target tokens per batch: {batch_tokens}")
+
+        # Create output directories
+        output_path = Path(output_dir)
+        summaries_path = output_path / "summaries"
+        summaries_path.mkdir(parents=True, exist_ok=True)
+
+        if include_full_content:
+            content_path = output_path / "full_content"
+            content_path.mkdir(parents=True, exist_ok=True)
+
+        # Get items from collection
+        items = self.get_items_to_process(
+            collection_key,
+            subcollections=subcollections,
+            include_main=include_main
+        )
+
+        if not items:
+            raise ValueError("No items found in collection")
+
+        # Filter out notes and attachments
+        items = [i for i in items if i['data'].get('itemType') not in ['note', 'attachment']]
+        print(f"\nFound {len(items)} items to process")
+
+        # Get collection name
+        try:
+            collection = self.zot.collection(collection_key)
+            collection_name = collection['data'].get('name', collection_key)
+        except Exception:
+            collection_name = collection_key
+
+        # Load research brief if available
+        research_brief = ""
+        try:
+            self.project_name = project_name
+            subcollection_key = self.get_subcollection(collection_key, self._get_subcollection_name())
+            if subcollection_key:
+                notes = self.get_collection_notes(subcollection_key)
+                for note in notes:
+                    note_html = note['data'].get('note', '')
+                    note_title = self.get_note_title_from_html(note_html)
+                    if '【Research Brief】' in note_title:
+                        research_brief = self.extract_text_from_note_html(note_html)
+                        break
+        except Exception:
+            pass
+
+        # Process each item
+        summary_note_prefix = f"【ZResearcher Summary: {project_name}】"
+        citation_index = {}
+        sources_with_summaries = []
+        skipped_sources = []
+
+        print(f"\nPhase 1: Collecting summaries...")
+        for idx, item in enumerate(items, 1):
+            item_data = item['data']
+            item_key = item['key']
+            item_title = item_data.get('title', 'Untitled')
+
+            # Get children
+            children = self.zot.children(item_key)
+
+            # Look for summary note
+            summary_content = None
+            for child in children:
+                if child['data'].get('itemType') == 'note':
+                    note_html = child['data'].get('note', '')
+                    note_title = self.get_note_title_from_html(note_html)
+                    if summary_note_prefix in note_title:
+                        summary_content = self.extract_text_from_note_html(note_html)
+                        break
+
+            if not summary_content:
+                skipped_sources.append(item_title)
+                continue
+
+            # Extract metadata
+            metadata = self.extract_metadata(item)
+            citekey = self._generate_citekey(item)
+            authors = self._format_authors_list(item)
+            year = self._extract_year(item)
+
+            # Estimate tokens (rough: words * 1.3)
+            token_estimate = int(len(summary_content.split()) * 1.3)
+
+            sources_with_summaries.append({
+                'item_key': item_key,
+                'citekey': citekey,
+                'title': item_title,
+                'summary': summary_content,
+                'token_estimate': token_estimate,
+                'metadata': metadata,
+                'authors': authors,
+                'year': year,
+                'item': item
+            })
+
+            # Build citation index entry
+            citation_index[item_key] = {
+                'title': item_title,
+                'authors': authors,
+                'date': year,
+                'publication': item_data.get('publicationTitle', item_data.get('bookTitle', '')),
+                'url': item_data.get('url', ''),
+                'zotero_link': f"zotero://select/items/{item_key}",
+                'item_type': item_data.get('itemType', 'unknown'),
+                'tags': [tag['tag'] for tag in item_data.get('tags', [])],
+                'summary_file': None,  # Will be filled in
+                'content_file': None   # Will be filled in if include_full_content
+            }
+
+        # Report skipped sources
+        if skipped_sources:
+            print(f"\n⚠️  Skipping {len(skipped_sources)} items without Phase 1 summaries:")
+            for title in skipped_sources[:5]:
+                print(f"   - {title[:60]}")
+            if len(skipped_sources) > 5:
+                print(f"   ... and {len(skipped_sources) - 5} more")
+            print(f"   (Run --build-summaries to generate summaries for these sources)")
+
+        if not sources_with_summaries:
+            raise ValueError("No sources with Phase 1 summaries found. Run --build-summaries first.")
+
+        print(f"\n✅ Found {len(sources_with_summaries)} sources with summaries")
+
+        # Phase 2: Export summary files
+        print(f"\nPhase 2: Exporting summary files...")
+        for idx, source in enumerate(sources_with_summaries, 1):
+            safe_title = self._sanitize_filename(source['title'])
+            filename = f"{idx:03d}_{safe_title}.md"
+            filepath = summaries_path / filename
+
+            # Write summary file with header
+            content = f"# {source['title']}\n\n"
+            content += f"**Key**: {source['item_key']}\n"
+            content += f"**Authors**: {', '.join(source['authors'])}\n"
+            content += f"**Year**: {source['year']}\n"
+            content += f"**Type**: {source['metadata'].get('itemType', 'unknown')}\n\n"
+            content += "---\n\n"
+            content += source['summary']
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+
+            citation_index[source['item_key']]['summary_file'] = f"summaries/{filename}"
+
+        # Phase 3: Export full content (optional)
+        if include_full_content:
+            print(f"\nPhase 3: Exporting full content...")
+            for idx, source in enumerate(sources_with_summaries, 1):
+                print(f"  [{idx}/{len(sources_with_summaries)}] {source['title'][:50]}")
+
+                content, content_type = self.get_source_content(source['item'])
+                if content:
+                    filename = f"{source['item_key']}.md"
+                    filepath = content_path / filename
+
+                    with open(filepath, 'w', encoding='utf-8') as f:
+                        f.write(f"# {source['title']}\n\n")
+                        f.write(f"Source type: {content_type}\n\n")
+                        f.write("---\n\n")
+                        f.write(content)
+
+                    citation_index[source['item_key']]['content_file'] = f"full_content/{filename}"
+
+        # Phase 4: Create batches
+        print(f"\nPhase 4: Creating batches...")
+
+        # Sort by token estimate (descending) for better packing
+        sources_sorted = sorted(sources_with_summaries, key=lambda x: x['token_estimate'], reverse=True)
+
+        batches = []
+        current_batch = {'sources': [], 'token_estimate': 0}
+
+        for source in sources_sorted:
+            if current_batch['token_estimate'] + source['token_estimate'] > batch_tokens:
+                if current_batch['sources']:
+                    batches.append(current_batch)
+                current_batch = {'sources': [], 'token_estimate': 0}
+
+            current_batch['sources'].append(source['item_key'])
+            current_batch['token_estimate'] += source['token_estimate']
+
+        if current_batch['sources']:
+            batches.append(current_batch)
+
+        print(f"  Created {len(batches)} batches")
+
+        # Create batch manifest
+        batch_manifest = []
+        for idx, batch in enumerate(batches, 1):
+            batch_manifest.append({
+                'batch_id': idx,
+                'sources': batch['sources'],
+                'token_estimate': batch['token_estimate']
+            })
+
+        # Phase 5: Write manifest and citation index
+        print(f"\nPhase 5: Writing manifest files...")
+
+        manifest = {
+            'collection_key': collection_key,
+            'collection_name': collection_name,
+            'project_name': project_name,
+            'research_brief': research_brief,
+            'total_sources': len(sources_with_summaries),
+            'skipped_sources': len(skipped_sources),
+            'export_date': datetime.now().isoformat(),
+            'zresearcher_version': '1.0.0',
+            'batches': batch_manifest,
+            'batch_config': {
+                'target_tokens_per_batch': batch_tokens,
+                'model_context_limit': 200000
+            }
+        }
+
+        manifest_path = output_path / 'manifest.json'
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, indent=2)
+
+        index_path = output_path / 'citation_index.json'
+        with open(index_path, 'w', encoding='utf-8') as f:
+            json.dump(citation_index, f, indent=2)
+
+        # Print summary
+        print(f"\n{'='*80}")
+        print(f"EXPORT COMPLETE")
+        print(f"{'='*80}")
+        print(f"📊 Summary:")
+        print(f"  • Sources exported: {len(sources_with_summaries)}")
+        if skipped_sources:
+            print(f"  • Sources skipped (no summary): {len(skipped_sources)}")
+        print(f"  • Batches created: {len(batches)}")
+        print(f"  • Full content exported: {include_full_content}")
+        print(f"\n📁 Output structure:")
+        print(f"  {output_path}/")
+        print(f"  ├── manifest.json")
+        print(f"  ├── citation_index.json")
+        print(f"  ├── summaries/")
+        print(f"  │   └── {len(sources_with_summaries)} files")
+        if include_full_content:
+            print(f"  └── full_content/")
+            print(f"      └── {len(sources_with_summaries)} files")
+
+        return manifest
