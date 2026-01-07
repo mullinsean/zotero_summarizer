@@ -14,12 +14,14 @@ def general_summary_prompt(
     date: str,
     content: str,
     truncated: bool = False,
-    char_limit: int = 50000
+    char_limit: int = 50000,
+    key_questions: str = ""
 ) -> str:
     """
-    Prompt for generating general summaries with tags and document type.
+    Prompt for generating enhanced general summaries with rich metadata.
 
-    Used in Phase 1 (build-summaries) to create project-aware summaries.
+    Used in Phase 1 (build-summaries) to create project-aware summaries with
+    classification, quality assessment, structural guidance, and key claims.
 
     Args:
         project_overview: Description of research project
@@ -30,17 +32,23 @@ def general_summary_prompt(
         content: Source content (truncated to char_limit)
         truncated: If True, content has been truncated
         char_limit: Character limit used for truncation
+        key_questions: Optional numbered key questions from project overview
 
     Returns:
         Formatted prompt string
     """
     truncation_note = f"\n\n**NOTE: This source has been truncated to {char_limit:,} characters. You are analyzing a partial view of the full content.**" if truncated else ""
 
-    return f"""You are tasked with summarizing the raw content of a research source, which could be a website, a report, an academic paper or a transcript. Your goal is to create a summary that preserves the most important information from the original source. This summary will be used by a downstream research agent, so it's crucial to maintain the key details without losing essential information.
+    key_questions_section = f"""
+Key Research Questions:
+{key_questions}
+""" if key_questions else ""
+
+    return f"""You are a research analyst creating a comprehensive summary and analysis of a source document for a research project. Your analysis will be used by downstream research agents, so provide rich structured metadata alongside the summary.
 
 Project Overview:
 {project_overview}
-
+{key_questions_section}
 Available Tags:
 {tags_list}
 
@@ -52,37 +60,82 @@ Source Metadata:
 Source Content:{truncation_note}
 {content}
 
-Please follow these guidelines to create your summary:
+Analyze this source and provide a structured response. Follow these guidelines:
 
-1. Identify and preserve the main topic or purpose of the webpage.
-2. Retain key facts, statistics, and data points that are central to the content's message.
-3. Keep important quotes from credible sources or experts.
-4. Maintain the chronological order of events if the content is time-sensitive or historical.
-5. Preserve any lists or step-by-step instructions if present.
-6. Include relevant dates, names, and locations that are crucial to understanding the content.
-7. Summarize lengthy explanations while keeping the core message intact.
+SUMMARY GUIDELINES:
+1. Preserve the main topic, purpose, and key arguments
+2. Retain key facts, statistics, and data points
+3. Keep important quotes from credible sources
+4. Maintain chronological order for time-sensitive content
+5. Include relevant dates, names, and locations
+6. Aim for 25-30% of original length
 
-When handling different types of content:
+CLASSIFICATION GUIDELINES:
+- Research Type: Determine based on the source's methodology and purpose
+- Project Role: Assess how this source contributes to the research project
+- Temporal Fit: Consider whether the publication date and content are current, foundational, or dated for this topic
 
-- For news articles: Focus on the who, what, when, where, why, and how.
-- For scientific content: Preserve methodology, results, and conclusions.
-- For opinion pieces: Maintain the main arguments and supporting points.
-- For product pages: Keep key features, specifications, and unique selling points.
+QUALITY ASSESSMENT GUIDELINES:
+- Look for indicators of peer review (journal publication, DOI, academic citations)
+- Assess evidence strength based on methodology, sample size, and rigor
+- Note any limitations the authors acknowledge or you identify
+- Identify potential biases from funding, affiliations, or ideological stance
 
-Your summary should be significantly shorter than the original content but comprehensive enough to stand alone as a source of information. Aim for about 25-30 percent of the original length, unless the content is already concise.
+KEY CLAIMS GUIDELINES:
+- Extract 3-5 key claims or findings from the source
+- If key research questions are provided above, link claims to relevant question numbers using [Qn] notation
+- If no key questions are provided, simply list the claims without question links
 
-Format your response EXACTLY as follows:
+Format your response EXACTLY as follows (use these exact headers):
 
 SUMMARY:
-<your summary here>
+<2-4 paragraph comprehensive summary preserving key information>
 
 TAGS:
-<comma-separated list of tags, e.g.: tag1, tag2, tag3>
+<comma-separated list of tags from the available tags above>
 
 DOCUMENT_TYPE:
-<document type>
+<specific document type: e.g., journal article, government report, news article, white paper, blog post, speech transcript, dataset documentation, book chapter, etc.>
 
-Remember, your goal is to create a summary that can be easily understood and utilized by a downstream research agent while preserving the most critical information from the original source.
+RESEARCH_TYPE:
+<exactly one of: empirical | theoretical | review | primary_source | commentary>
+- empirical: Original data collection/analysis (surveys, experiments, case studies)
+- theoretical: Conceptual or theoretical contribution
+- review: Literature review, systematic review, or meta-analysis
+- primary_source: Original documents, datasets, speeches, legislation
+- commentary: Opinion, editorial, response, or analysis without original research
+
+PROJECT_ROLE:
+<exactly one of: background | core_evidence | methodology | counterargument | supporting>
+- background: Provides context, foundations, or general understanding
+- core_evidence: Directly addresses key research questions
+- methodology: Useful for approach, methods, or frameworks
+- counterargument: Challenges or complicates the project's thesis
+- supporting: Tangentially relevant, provides supplementary information
+
+STRUCTURAL_GUIDANCE:
+Most Relevant Sections: <comma-separated list of section names or topics worth deep reading, e.g., "Section 3: Methodology, Results and Discussion, Appendix A">
+Sections to Skip: <comma-separated list of sections that can be skipped for this project, or "None" if all sections are relevant>
+
+QUALITY_INDICATORS:
+Peer Reviewed: <yes | no | unclear>
+Evidence Strength: <strong | moderate | weak> (for this project's needs)
+Limitations: <brief description of key limitations, or "Not stated">
+Potential Biases: <brief description of potential biases, or "None identified">
+
+TEMPORAL_FIT:
+Status: <current | dated | foundational>
+- current: Recent and timely for this topic
+- dated: Information may be outdated or superseded
+- foundational: Classic or seminal work that remains relevant
+Context: <brief explanation of temporal relevance, e.g., "Published 2023, covers latest policy developments" or "Pre-dates major regulatory changes in 2020">
+
+KEY_CLAIMS:
+<numbered list of 3-5 key claims or findings>
+<If key questions were provided, link claims using [Qn] notation. Example:>
+1. [Q1] Claim directly relevant to question 1...
+2. [Q2, Q3] Claim relevant to multiple questions...
+3. Claim without specific question linkage...
 """
 
 

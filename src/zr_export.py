@@ -625,6 +625,103 @@ class ZoteroNotebookLMExporter(ZoteroResearcherBase):
         year = self._extract_year(item)
         return f"{author}{year}"
 
+    def _parse_summary_note_for_export(self, summary_content: str) -> Dict:
+        """
+        Parse enhanced summary note content to extract structured fields for export.
+
+        Args:
+            summary_content: The summary note content as markdown text
+
+        Returns:
+            Dict with extracted fields (with defaults for missing/old format notes)
+        """
+        result = {
+            # Classification
+            'research_type': 'unknown',
+            'project_role': 'supporting',
+            # Temporal fit
+            'temporal_status': 'current',
+            'temporal_context': '',
+            # Quality indicators
+            'peer_reviewed': 'unclear',
+            'evidence_strength': 'moderate',
+            'limitations': '',
+            'biases': '',
+            # Structural guidance
+            'relevant_sections': [],
+            'skip_sections': [],
+            # Key claims
+            'key_claims': []
+        }
+
+        # Parse Classification section
+        research_match = re.search(r'\*\*Research Type\*\*:\s*(\w+)', summary_content)
+        if research_match:
+            result['research_type'] = research_match.group(1).lower()
+
+        role_match = re.search(r'\*\*Project Role\*\*:\s*(\w+)', summary_content)
+        if role_match:
+            result['project_role'] = role_match.group(1).lower()
+
+        # Parse Temporal Status (format: "status (context)" or just "status")
+        temporal_match = re.search(r'\*\*Temporal Status\*\*:\s*(\w+)(?:\s*\(([^)]+)\))?', summary_content)
+        if temporal_match:
+            result['temporal_status'] = temporal_match.group(1).lower()
+            if temporal_match.group(2):
+                result['temporal_context'] = temporal_match.group(2).strip()
+
+        # Parse Quality Assessment
+        peer_match = re.search(r'\*\*Peer Reviewed\*\*:\s*(\w+)', summary_content)
+        if peer_match:
+            result['peer_reviewed'] = peer_match.group(1).lower()
+
+        strength_match = re.search(r'\*\*Evidence Strength\*\*:\s*(\w+)', summary_content)
+        if strength_match:
+            result['evidence_strength'] = strength_match.group(1).lower()
+
+        limitations_match = re.search(r'\*\*Limitations\*\*:\s*(.+?)(?=\n\*\*|\n##|\Z)', summary_content, re.DOTALL)
+        if limitations_match:
+            result['limitations'] = limitations_match.group(1).strip()
+
+        biases_match = re.search(r'\*\*Potential Biases\*\*:\s*(.+?)(?=\n##|\Z)', summary_content, re.DOTALL)
+        if biases_match:
+            result['biases'] = biases_match.group(1).strip()
+
+        # Parse Structural Guidance
+        relevant_match = re.search(r'\*\*Most Relevant Sections\*\*:\s*(.+?)(?=\n\*\*|\n##|\Z)', summary_content, re.DOTALL)
+        if relevant_match:
+            sections_str = relevant_match.group(1).strip()
+            if sections_str and sections_str.lower() != 'not specified':
+                result['relevant_sections'] = [s.strip() for s in sections_str.split(',') if s.strip()]
+
+        skip_match = re.search(r'\*\*Sections to Skip\*\*:\s*(.+?)(?=\n##|\Z)', summary_content, re.DOTALL)
+        if skip_match:
+            sections_str = skip_match.group(1).strip()
+            if sections_str and sections_str.lower() != 'none':
+                result['skip_sections'] = [s.strip() for s in sections_str.split(',') if s.strip()]
+
+        # Parse Key Claims section
+        claims_match = re.search(r'## Key Claims\n(.+?)(?=\n---|\Z)', summary_content, re.DOTALL)
+        if claims_match:
+            claims_text = claims_match.group(1).strip()
+            if claims_text.lower() != 'none extracted':
+                # Parse numbered claims with optional [Qn] notation
+                claim_pattern = re.compile(r'^\s*\d+\.\s*(?:\[([^\]]+)\])?\s*(.+?)(?=\n\d+\.|\Z)', re.MULTILINE | re.DOTALL)
+                for match in claim_pattern.finditer(claims_text):
+                    q_links_str = match.group(1)
+                    claim_text = match.group(2).strip()
+                    questions = []
+                    if q_links_str:
+                        q_numbers = re.findall(r'Q(\d+)', q_links_str)
+                        questions = [int(q) for q in q_numbers]
+                    if claim_text:
+                        result['key_claims'].append({
+                            'claim': claim_text,
+                            'linked_questions': questions
+                        })
+
+        return result
+
     def export_source_directory(
         self,
         collection_key: str,
@@ -1038,6 +1135,9 @@ collection: {collection_name}
             # Estimate tokens (rough: words * 1.3)
             token_estimate = int(len(summary_content.split()) * 1.3)
 
+            # Parse enhanced fields from summary (with defaults for old format)
+            parsed_summary = self._parse_summary_note_for_export(summary_content)
+
             sources_with_summaries.append({
                 'item_key': item_key,
                 'citekey': citekey,
@@ -1047,10 +1147,11 @@ collection: {collection_name}
                 'metadata': metadata,
                 'authors': authors,
                 'year': year,
-                'item': item
+                'item': item,
+                'parsed': parsed_summary  # Include parsed fields
             })
 
-            # Build citation index entry
+            # Build citation index entry with enhanced fields
             citation_index[item_key] = {
                 'title': item_title,
                 'authors': authors,
@@ -1061,7 +1162,26 @@ collection: {collection_name}
                 'item_type': item_data.get('itemType', 'unknown'),
                 'tags': [tag['tag'] for tag in item_data.get('tags', [])],
                 'summary_file': None,  # Will be filled in
-                'content_file': None   # Will be filled in if include_full_content
+                'content_file': None,  # Will be filled in if include_full_content
+
+                # Enhanced classification fields
+                'research_type': parsed_summary['research_type'],
+                'project_role': parsed_summary['project_role'],
+                'temporal_fit': {
+                    'status': parsed_summary['temporal_status'],
+                    'context': parsed_summary['temporal_context']
+                },
+                'quality': {
+                    'peer_reviewed': parsed_summary['peer_reviewed'],
+                    'evidence_strength': parsed_summary['evidence_strength'],
+                    'limitations': parsed_summary['limitations'],
+                    'biases': parsed_summary['biases']
+                },
+                'structural_guidance': {
+                    'relevant_sections': parsed_summary['relevant_sections'],
+                    'skip_sections': parsed_summary['skip_sections']
+                },
+                'key_claims': parsed_summary['key_claims']
             }
 
         # Report skipped sources

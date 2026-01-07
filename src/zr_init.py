@@ -66,12 +66,21 @@ class ZoteroResearcherInit(ZoteroResearcherBase):
 Describe your research project, goals, and key areas of interest.
 This context will inform the general summaries created for each source.
 
+**Tip:** Include numbered key questions - they will be linked to key
+claims extracted from sources during summary generation.
+
 Example:
 This project examines the impact of artificial intelligence on
-software development practices. Key areas include: code generation
-tools, automated testing, productivity metrics, and ethical
-considerations. The research will inform a technical report for
-software engineering managers.
+software development practices.
+
+Key Questions:
+1. How do AI code generation tools affect developer productivity?
+2. What is the impact on code quality and maintainability?
+3. How do developers perceive and adapt to these tools?
+4. What are the ethical implications of AI-assisted coding?
+
+The research will inform a technical report for software engineering
+managers evaluating AI tool adoption.
 
 ---
 Template created by ZoteroResearcher
