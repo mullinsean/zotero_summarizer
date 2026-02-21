@@ -587,7 +587,8 @@ Examples:
             dry_run=args.dry_run,
             skip_confirm=args.yes,
             subcollections=args.subcollections,
-            include_main=args.include_main
+            include_main=args.include_main,
+            report_path=args.output_file
         )
         return
 

@@ -6,6 +6,7 @@ Audits and fixes bibliographic metadata on Zotero items using LLM-based
 content analysis. Designed for APA 7th edition citation requirements.
 """
 
+import csv
 import re
 from typing import Optional, Dict, List, Any
 
@@ -97,7 +98,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         dry_run: bool = False,
         skip_confirm: bool = False,
         subcollections: Optional[str] = None,
-        include_main: bool = False
+        include_main: bool = False,
+        report_path: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Main entry point: audit and fix metadata for items in a collection.
@@ -114,6 +116,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             skip_confirm: If True, skip confirmation prompt
             subcollections: Optional subcollection filter
             include_main: Include main collection items when filtering
+            report_path: If set, write CSV report of audit results to this path
 
         Returns:
             Stats dict with counts of actions taken
@@ -132,6 +135,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'items_retyped': 0,
             'errors': 0,
         }
+        report_rows = []
 
         print("=" * 80)
         print("METADATA VERIFICATION")
@@ -154,6 +158,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if not items:
             print("No items to process.")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Filter out notes and standalone attachments (only process regular items)
@@ -174,6 +180,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if not processable_items:
             print("No processable items found (all items are notes/attachments).")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Check for already-verified items
@@ -181,6 +189,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         for item in processable_items:
             if not self.force_rebuild and self._has_verified_tag(item):
                 stats['skipped_verified'] += 1
+                report_rows.append(self._build_report_row(item, 'verified'))
                 continue
             items_to_audit.append(item)
 
@@ -189,6 +198,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if not items_to_audit:
             print("\nAll items already verified. Use --force to re-verify.")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Audit each item's fields
@@ -202,6 +213,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 stats['needs_verification'] += 1
             else:
                 stats['already_complete'] += 1
+                report_rows.append(self._build_report_row(item, 'complete'))
 
         print(f"\nAudit complete:")
         print(f"  {stats['audited']} items audited")
@@ -213,6 +225,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             if not dry_run:
                 self._tag_complete_items(items_to_audit, items_needing_llm)
             print("\nNo items need LLM verification.")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # ── Phase B: LLM Verification ──────────────────────────────────
@@ -233,6 +247,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             if not content:
                 no_content_count += 1
                 no_content_titles.append(item_title)
+                report_rows.append(self._build_report_row(
+                    item, 'incomplete', missing_fields=audit['missing_fields']))
                 stats['errors'] += 1
                 continue
 
@@ -266,6 +282,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if not batch_requests:
             print("No items had extractable content for verification.")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Progress callback
@@ -303,6 +321,31 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             if changes or type_change:
                 update_plans.append((item, changes, type_change))
 
+        # Build report rows for LLM-processed items
+        updated_keys = {item['key'] for item, _, _ in update_plans}
+        for request_id, (item, audit) in item_map.items():
+            parsed = parsed_results.get(request_id)
+            if parsed is None:
+                report_rows.append(self._build_report_row(
+                    item, 'incomplete', missing_fields=audit['missing_fields']))
+            elif request_id in updated_keys:
+                fields_updated_list = []
+                type_override = None
+                for uitem, uchanges, utype_change in update_plans:
+                    if uitem['key'] == request_id:
+                        fields_updated_list = list(uchanges.keys())
+                        type_override = utype_change['to'] if utype_change else None
+                        break
+                remaining_missing = [f for f in audit['missing_fields']
+                                     if f not in fields_updated_list]
+                report_rows.append(self._build_report_row(
+                    item, 'updated', missing_fields=remaining_missing,
+                    fields_updated=fields_updated_list,
+                    item_type_override=type_override))
+            else:
+                report_rows.append(self._build_report_row(
+                    item, 'complete', missing_fields=audit['missing_fields']))
+
         # ── Phase D: Apply or Report ────────────────────────────────────
         print(f"Phase D: {'Reporting changes (dry run)' if dry_run else 'Applying updates'}...\n")
 
@@ -314,6 +357,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                     [item for item, _ in items_needing_llm],
                     parsed_results
                 )
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Display proposed changes
@@ -338,6 +383,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if dry_run:
             print("\nDry run complete. No changes were made.")
+            if report_path:
+                self._generate_csv_report(report_rows, report_path)
             return stats
 
         # Confirm unless --yes
@@ -345,6 +392,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             response = input(f"\nApply changes to {len(update_plans)} items? [y/N] ").strip().lower()
             if response not in ('y', 'yes'):
                 print("Aborted.")
+                if report_path:
+                    self._generate_csv_report(report_rows, report_path)
                 return stats
 
         # Apply updates
@@ -385,6 +434,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         print(f"  Items retyped:       {stats['items_retyped']}")
         print(f"  Errors:              {stats['errors']}")
 
+        if report_path:
+            self._generate_csv_report(report_rows, report_path)
         return stats
 
     # ── Audit helpers ───────────────────────────────────────────────────
@@ -791,3 +842,66 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         except Exception as e:
             if self.verbose:
                 print(f"  Warning: Could not add verified tag to {item['key']}: {e}")
+
+    # ── CSV Report ─────────────────────────────────────────────────────
+
+    def _build_report_row(
+        self,
+        item: Dict,
+        status: str,
+        missing_fields: Optional[List[str]] = None,
+        fields_updated: Optional[List[str]] = None,
+        item_type_override: Optional[str] = None
+    ) -> Dict[str, str]:
+        """Build a single CSV report row for an item."""
+        data = item['data']
+        item_type = item_type_override or data.get('itemType', '')
+
+        # Format creators as "Last, First; Last, First"
+        creators = data.get('creators', [])
+        creator_parts = []
+        for c in creators:
+            if 'lastName' in c:
+                first = c.get('firstName', '')
+                last = c['lastName']
+                creator_parts.append(f"{last}, {first}" if first else last)
+            else:
+                creator_parts.append(c.get('name', ''))
+        creators_str = '; '.join(creator_parts)
+
+        # Get publication from type-appropriate field
+        publication = ''
+        for field in ['publicationTitle', 'bookTitle', 'websiteTitle',
+                      'blogTitle', 'institution']:
+            val = data.get(field, '')
+            if val:
+                publication = val
+                break
+
+        return {
+            'item_key': item['key'],
+            'item_type': item_type,
+            'title': data.get('title', ''),
+            'creators': creators_str,
+            'date': data.get('date', ''),
+            'publication': publication,
+            'publisher': data.get('publisher', ''),
+            'DOI': data.get('DOI', ''),
+            'url': data.get('url', ''),
+            'status': status,
+            'missing_fields': '; '.join(missing_fields) if missing_fields else '',
+            'fields_updated': '; '.join(fields_updated) if fields_updated else '',
+        }
+
+    def _generate_csv_report(self, report_rows: List[Dict], report_path: str) -> None:
+        """Write CSV report of metadata audit results."""
+        fieldnames = [
+            'item_key', 'item_type', 'title', 'creators', 'date',
+            'publication', 'publisher', 'DOI', 'url', 'status',
+            'missing_fields', 'fields_updated',
+        ]
+        with open(report_path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(report_rows)
+        print(f"\nCSV report written: {report_path} ({len(report_rows)} items)")
