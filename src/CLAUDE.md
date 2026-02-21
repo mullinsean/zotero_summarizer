@@ -10,6 +10,7 @@ src/
 ├── zr_common.py            # Base class & shared utilities
 ├── zr_init.py              # Collection initialization workflow
 ├── zr_organize_sources.py  # Source organization workflow
+├── zr_verify_metadata.py   # Metadata verification & APA field audit
 ├── zr_build.py             # Phase 1: Build summaries workflow
 ├── zr_query.py             # Phase 2: Query & report generation workflow
 ├── zr_file_search.py       # File Search: Gemini RAG integration
@@ -68,6 +69,22 @@ Utility function:
 - `save_webpage_snapshot()` - Fetch and save webpage HTML snapshots
 
 Run after `init_collection` but before `build_summaries`.
+
+### `zr_verify_metadata.py` - Metadata Verification
+
+`ZoteroMetadataVerifier` class (inherits from `ZoteroResearcherBase`):
+- `verify_metadata()` - Main entry point: four-phase audit & fix workflow
+  - Phase A: Audit fields against APA requirements (no LLM)
+  - Phase B: LLM verification of missing/suspicious fields via batch calls
+  - Phase C: Compute safe updates (conservative by default, aggressive with `--force`)
+  - Phase D: Apply changes to Zotero or display dry-run report
+- `_audit_item()` - Check item fields against `APA_FIELD_REQUIREMENTS`
+- `_parse_verification_response()` - Parse LLM structured output
+- `_compute_field_updates()` / `_compute_type_change()` - Determine safe changes
+- `_apply_updates()` - Write field changes and type changes to Zotero API
+- `_add_verified_tag()` - Tag items with `_metadata_verified` to skip on re-runs
+
+Uses `_metadata_verified` tag for idempotency. Supports `--dry-run`, `--force`, `--yes`.
 
 ### `zr_build.py` - Phase 1 Workflow
 
@@ -302,6 +319,7 @@ ZoteroBaseProcessor (zotero_base.py)
 └── ZoteroResearcherBase (zr_common.py)
     ├── ZoteroResearcherInit (zr_init.py)
     ├── ZoteroResearcherOrganizer (zr_organize_sources.py)
+    ├── ZoteroMetadataVerifier (zr_verify_metadata.py)
     ├── ZoteroResearcherBuilder (zr_build.py)
     ├── ZoteroResearcherQuerier (zr_query.py)
     ├── ZoteroFileSearcher (zr_file_search.py)

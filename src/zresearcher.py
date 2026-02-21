@@ -25,6 +25,7 @@ try:
     from .zr_cleanup import ZoteroResearcherCleaner
     from .zr_export import ZoteroNotebookLMExporter
     from .zr_vector_db import ZoteroVectorSearcher
+    from .zr_verify_metadata import ZoteroMetadataVerifier
 except ImportError:
     from zotero_base import ZoteroBaseProcessor
     from zr_common import validate_project_name
@@ -36,6 +37,7 @@ except ImportError:
     from zr_cleanup import ZoteroResearcherCleaner
     from zr_export import ZoteroNotebookLMExporter
     from zr_vector_db import ZoteroVectorSearcher
+    from zr_verify_metadata import ZoteroMetadataVerifier
 
 
 def main():
@@ -146,6 +148,11 @@ Examples:
         '--organize-sources',
         action='store_true',
         help='Organize sources: ensure all items have acceptable attachments (HTML/PDF/TXT). Optional, run after init-collection.'
+    )
+    mode_group.add_argument(
+        '--verify-metadata',
+        action='store_true',
+        help='Verify and fix bibliographic metadata (title, authors, date, etc.) using LLM analysis of source content'
     )
     mode_group.add_argument(
         '--build-summaries',
@@ -557,6 +564,28 @@ Examples:
         )
         stats = organizer.organize_sources(
             collection_key,
+            subcollections=args.subcollections,
+            include_main=args.include_main
+        )
+        return
+
+    # Handle --verify-metadata mode
+    if args.verify_metadata:
+        verifier = ZoteroMetadataVerifier(
+            library_id,
+            library_type,
+            zotero_api_key,
+            anthropic_api_key,
+            project_name=project_name if project_name else "temp",  # Optional for verify
+            force_rebuild=args.force,
+            verbose=args.verbose,
+            enable_cache=args.enable_cache,
+            offline=args.offline
+        )
+        stats = verifier.verify_metadata(
+            collection_key,
+            dry_run=args.dry_run,
+            skip_confirm=args.yes,
             subcollections=args.subcollections,
             include_main=args.include_main
         )

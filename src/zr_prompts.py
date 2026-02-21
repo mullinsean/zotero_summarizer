@@ -434,3 +434,83 @@ Guidelines:
 - Aim for 1500-2500 words
 
 Format your response using clear markdown headings (##) and structure. Begin your synthesis below:"""
+
+
+def metadata_verification_prompt(
+    item_type: str,
+    current_metadata: dict,
+    missing_fields: list,
+    suspicious_fields: list,
+    content: str
+) -> str:
+    """
+    Prompt for verifying and extracting bibliographic metadata from source content.
+
+    Used by --verify-metadata to audit Zotero items against APA 7th edition
+    requirements and extract missing or correct suspicious field values.
+
+    Args:
+        item_type: Current Zotero item type (e.g., "journalArticle", "document")
+        current_metadata: Dict of current field values (field_name -> value)
+        missing_fields: List of field names that are empty/missing
+        suspicious_fields: List of field names with suspicious values
+        content: Source content (first ~15K chars)
+
+    Returns:
+        Formatted prompt string
+    """
+    # Format current metadata for display
+    metadata_lines = []
+    for field, value in current_metadata.items():
+        status = ""
+        if field in missing_fields:
+            status = " [MISSING]"
+        elif field in suspicious_fields:
+            status = " [SUSPICIOUS]"
+        metadata_lines.append(f"  {field}: {value}{status}")
+    metadata_display = "\n".join(metadata_lines)
+
+    fields_needing_attention = missing_fields + suspicious_fields
+    fields_list = ", ".join(fields_needing_attention) if fields_needing_attention else "none"
+
+    return f"""You are a bibliographic metadata specialist. Your task is to verify and extract accurate bibliographic metadata from the source content below. This metadata will be used to generate APA 7th edition citations.
+
+Current Item Type: {item_type}
+
+Current Metadata:
+{metadata_display}
+
+Fields Needing Attention: {fields_list}
+
+Source Content (may be truncated):
+{content}
+
+INSTRUCTIONS:
+1. First, assess whether the current item type is correct based on the source content.
+2. Then, for each bibliographic field listed below, verify the current value or extract it from the content.
+3. For creators/authors: provide as "LastName, FirstName" separated by semicolons for multiple authors. If the author is an organization, provide just the organization name.
+4. For dates: use YYYY-MM-DD format if possible, YYYY-MM if only month available, or YYYY if only year.
+5. Only report fields that are missing, suspicious, or that you can verify/correct. Skip fields that are already correct and not in the attention list.
+
+FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS:
+
+ITEM_TYPE_ASSESSMENT:
+CURRENT: {item_type}
+SUGGESTED: <suggested item type, or same as current if correct>
+CONFIDENCE: <high | medium | low>
+REASON: <brief explanation>
+
+Then for each field you can verify or extract, provide a block like this:
+
+FIELD: <field_name>
+STATUS: <confirmed | corrected | extracted | not_found>
+VALUE: <the value>
+CONFIDENCE: <high | medium | low>
+
+STATUS meanings:
+- confirmed: current value is correct
+- corrected: current value was wrong, providing correct value
+- extracted: field was missing/empty, extracted from content
+- not_found: could not determine value from content
+
+Provide ONLY the structured output above, nothing else."""

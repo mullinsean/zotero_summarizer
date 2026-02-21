@@ -54,6 +54,14 @@ uv run python -m src.zresearcher --build-summaries \
 uv run python -m src.zresearcher --query-summary \
     --collection COLLECTION_KEY --project "My Project"
 
+# Verify/fix bibliographic metadata (dry run)
+uv run python -m src.zresearcher --verify-metadata \
+    --collection COLLECTION_KEY --dry-run
+
+# Verify/fix bibliographic metadata (apply)
+uv run python -m src.zresearcher --verify-metadata \
+    --collection COLLECTION_KEY --yes
+
 # Vector search: Index collection
 uv run python -m src.zresearcher --index-vectors \
     --collection COLLECTION_KEY --project "My Project"
@@ -77,6 +85,7 @@ src/
 ├── zr_common.py            # Base class & shared utilities
 ├── zr_init.py              # Collection initialization
 ├── zr_organize_sources.py  # Source organization
+├── zr_verify_metadata.py   # Metadata verification & APA field audit
 ├── zr_build.py             # Phase 1: Build summaries
 ├── zr_query.py             # Phase 2: Query & reports
 ├── zr_file_search.py       # Gemini RAG integration
