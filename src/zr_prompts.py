@@ -490,7 +490,12 @@ INSTRUCTIONS:
 2. Then, for each bibliographic field listed below, verify the current value or extract it from the content.
 3. For creators/authors: provide as "LastName, FirstName" separated by semicolons for multiple authors. If the author is an organization, provide just the organization name.
 4. For dates: use YYYY-MM-DD format if possible, YYYY-MM if only month available, or YYYY if only year.
-5. Only report fields that are missing, suspicious, or that you can verify/correct. Skip fields that are already correct and not in the attention list.
+5. Verify ALL fields listed above, including those with existing values. For fields marked [MISSING] or [SUSPICIOUS], focus on extracting or correcting values. For other fields, confirm they are correct or provide corrections if you find errors.
+6. For creators/authors, pay special attention to:
+   - Whether the listed author is the actual author or the website/publication name
+   - Organization names incorrectly split into first/last name fields (provide as a single organization name instead)
+   - Usernames or handles instead of real author names
+   - Missing co-authors when the source content lists multiple authors
 
 FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS:
 

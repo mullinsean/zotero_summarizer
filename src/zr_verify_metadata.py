@@ -32,6 +32,31 @@ SUSPICIOUS_VALUES = {
     "[no author]", "[no date]", "[no title]",
 }
 
+# Keywords that indicate an organization rather than a person
+ORG_KEYWORDS = {
+    "association", "inc", "incorporated", "llc", "llp", "ltd",
+    "corp", "corporation", "company",
+    "news", "media", "press", "publishing",
+    "university", "college", "school", "academy",
+    "institute", "institution", "center", "centre",
+    "foundation", "fund", "trust",
+    "department", "dept", "ministry", "bureau", "agency",
+    "commission", "committee", "council", "board", "authority",
+    "court", "tribunal",
+    "group", "network", "consortium", "alliance", "federation",
+    "society", "organization", "organisation",
+    "government", "gov", "laboratory", "lab",
+}
+
+# Fields that contain publication/website names (used for creator cross-check)
+PUBLICATION_FIELDS = [
+    'websiteTitle', 'blogTitle', 'publicationTitle',
+    'publisher', 'institution', 'conferenceName',
+]
+
+# Words that are stop words when used as a firstName (indicate org split)
+STOP_FIRST_NAMES = {"the", "a", "an"}
+
 # APA 7th edition field requirements by item type
 APA_FIELD_REQUIREMENTS = {
     'journalArticle': {
@@ -488,6 +513,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                     # Check if suspicious
                     if self._is_suspicious_value(creator_display):
                         suspicious_fields.append('creators')
+                    elif self._is_suspicious_creator(item):
+                        suspicious_fields.append('creators')
                     else:
                         ok_fields.append('creators')
             else:
@@ -520,6 +547,71 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             return False
         normalized = value.strip().lower()
         return normalized in SUSPICIOUS_VALUES
+
+    def _is_suspicious_creator(self, item: Dict) -> bool:
+        """
+        Detect structurally wrong creators using heuristics.
+
+        Catches cases where the creator field is non-empty but likely incorrect:
+        - Publication/website name used as author
+        - Organization name split into firstName/lastName fields
+        - Stop word (The, A, An) as firstName
+        - Username-like single lowercase word as name
+        """
+        item_data = item['data']
+        creators = item_data.get('creators', [])
+        if not creators:
+            return False
+
+        # Collect publication-title values for cross-check
+        pub_names = set()
+        for field in PUBLICATION_FIELDS:
+            val = item_data.get(field, '').strip()
+            if val:
+                pub_names.add(val.lower())
+
+        for creator in creators:
+            # Build display name variants for publication-title match
+            if 'lastName' in creator:
+                first = creator.get('firstName', '').strip()
+                last = creator.get('lastName', '').strip()
+                full_fl = f"{first} {last}".strip()
+                full_lf = f"{last} {first}".strip() if first else last
+                display_names = {full_fl.lower(), full_lf.lower()}
+
+                # Heuristic 1: Publication-title match
+                if pub_names & display_names:
+                    return True
+
+                # Heuristic 2: Org keyword in person fields
+                for word in re.split(r'[\s,&]+', last):
+                    if word.lower() in ORG_KEYWORDS:
+                        return True
+                for word in re.split(r'[\s,&]+', first):
+                    if word.lower() in ORG_KEYWORDS:
+                        return True
+
+                # Heuristic 3: Stop word as firstName
+                if first.lower() in STOP_FIRST_NAMES:
+                    return True
+
+                # Heuristic 4: Username-like — single lowercase word with no spaces
+                full_name = full_fl
+                if full_name and ' ' not in full_name and full_name == full_name.lower():
+                    return True
+
+            else:
+                name = creator.get('name', '').strip()
+
+                # Heuristic 1: Publication-title match
+                if name.lower() in pub_names:
+                    return True
+
+                # Heuristic 4: Username-like — single lowercase word
+                if name and ' ' not in name and name == name.lower():
+                    return True
+
+        return False
 
     # ── Response parsing ────────────────────────────────────────────────
 
@@ -625,13 +717,15 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 if confidence in ('high', 'medium'):
                     should_update = True
             elif status == 'corrected':
-                if is_suspicious and confidence == 'high':
-                    # Auto-fix suspicious fields with high confidence
+                if is_suspicious and confidence in ('high', 'medium'):
+                    # Auto-fix suspicious fields with high or medium confidence
                     should_update = True
-                elif is_existing and self.force_rebuild and confidence == 'high':
-                    # With --force, also correct existing fields
+                elif is_existing and confidence == 'high':
+                    # Correct existing fields with high confidence
                     should_update = True
-                # Otherwise: existing field corrections are reported but not applied
+                elif is_existing and self.force_rebuild and confidence == 'medium':
+                    # With --force, also correct existing fields at medium confidence
+                    should_update = True
             elif status == 'confirmed':
                 # No change needed
                 continue
@@ -900,7 +994,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'publication', 'publisher', 'DOI', 'url', 'status',
             'missing_fields', 'fields_updated',
         ]
-        with open(report_path, 'w', newline='') as f:
+        with open(report_path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             writer.writerows(report_rows)
