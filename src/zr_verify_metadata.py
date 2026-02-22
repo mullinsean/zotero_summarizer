@@ -46,6 +46,7 @@ ORG_KEYWORDS = {
     "group", "network", "consortium", "alliance", "federation",
     "society", "organization", "organisation",
     "government", "gov", "laboratory", "lab",
+    "forum",
 }
 
 # Fields that contain publication/website names (used for creator cross-check)
@@ -286,7 +287,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 current_metadata=audit['current_metadata'],
                 missing_fields=audit['missing_fields'],
                 suspicious_fields=audit['suspicious_fields'],
-                content=content_truncated
+                content=content_truncated,
+                suspicious_reasons=audit.get('suspicious_reasons', {}),
             )
 
             batch_requests.append({
@@ -489,6 +491,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         current_metadata = {}
         missing_fields = []
         suspicious_fields = []
+        suspicious_reasons = {}
         ok_fields = []
 
         for field in all_fields:
@@ -513,10 +516,13 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                     # Check if suspicious
                     if self._is_suspicious_value(creator_display):
                         suspicious_fields.append('creators')
-                    elif self._is_suspicious_creator(item):
-                        suspicious_fields.append('creators')
                     else:
-                        ok_fields.append('creators')
+                        reason = self._is_suspicious_creator(item)
+                        if reason:
+                            suspicious_fields.append('creators')
+                            suspicious_reasons['creators'] = reason
+                        else:
+                            ok_fields.append('creators')
             else:
                 value = item_data.get(field, '')
                 current_metadata[field] = value if value else '(empty)'
@@ -535,6 +541,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'current_metadata': current_metadata,
             'missing_fields': missing_fields,
             'suspicious_fields': suspicious_fields,
+            'suspicious_reasons': suspicious_reasons,
             'ok_fields': ok_fields,
             'needs_verification': needs_verification,
             'required_fields': reqs['required'],
@@ -548,7 +555,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         normalized = value.strip().lower()
         return normalized in SUSPICIOUS_VALUES
 
-    def _is_suspicious_creator(self, item: Dict) -> bool:
+    def _is_suspicious_creator(self, item: Dict) -> Optional[str]:
         """
         Detect structurally wrong creators using heuristics.
 
@@ -557,18 +564,20 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         - Organization name split into firstName/lastName fields
         - Stop word (The, A, An) as firstName
         - Username-like single lowercase word as name
+
+        Returns a descriptive reason string if suspicious, or None if OK.
         """
         item_data = item['data']
         creators = item_data.get('creators', [])
         if not creators:
-            return False
+            return None
 
-        # Collect publication-title values for cross-check
-        pub_names = set()
+        # Collect publication-title values for cross-check (lowered name → field name)
+        pub_names = {}
         for field in PUBLICATION_FIELDS:
             val = item_data.get(field, '').strip()
             if val:
-                pub_names.add(val.lower())
+                pub_names[val.lower()] = field
 
         for creator in creators:
             # Build display name variants for publication-title match
@@ -580,38 +589,66 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 display_names = {full_fl.lower(), full_lf.lower()}
 
                 # Heuristic 1: Publication-title match
-                if pub_names & display_names:
-                    return True
+                for dn in display_names:
+                    if dn in pub_names:
+                        matched_field = pub_names[dn]
+                        matched_val = item_data.get(matched_field, '').strip()
+                        return (
+                            f'matches {matched_field} "{matched_val}" — '
+                            f'likely not the real author; look for actual author byline in content'
+                        )
 
                 # Heuristic 2: Org keyword in person fields
                 for word in re.split(r'[\s,&]+', last):
                     if word.lower() in ORG_KEYWORDS:
-                        return True
+                        return (
+                            f'org keyword "{word}" in lastName — '
+                            f'likely an organization name split into person fields; '
+                            f'provide as single org name'
+                        )
                 for word in re.split(r'[\s,&]+', first):
                     if word.lower() in ORG_KEYWORDS:
-                        return True
+                        return (
+                            f'org keyword "{word}" in firstName — '
+                            f'likely an organization name split into person fields; '
+                            f'provide as single org name'
+                        )
 
                 # Heuristic 3: Stop word as firstName
                 if first.lower() in STOP_FIRST_NAMES:
-                    return True
+                    return (
+                        f'stop word "{first}" as firstName — '
+                        f'likely an org name split into person fields; '
+                        f'provide as single org name or find actual author'
+                    )
 
                 # Heuristic 4: Username-like — single lowercase word with no spaces
                 full_name = full_fl
                 if full_name and ' ' not in full_name and full_name == full_name.lower():
-                    return True
+                    return (
+                        f'username-like value "{full_name}" — '
+                        f'likely a handle; look for real author name in content'
+                    )
 
             else:
                 name = creator.get('name', '').strip()
 
                 # Heuristic 1: Publication-title match
                 if name.lower() in pub_names:
-                    return True
+                    matched_field = pub_names[name.lower()]
+                    return (
+                        f'matches {matched_field} "{name}" — '
+                        f'likely not the real author; look for actual author byline in content'
+                    )
 
                 # Heuristic 4: Username-like — single lowercase word
                 if name and ' ' not in name and name == name.lower():
-                    return True
+                    return (
+                        f'username-like value "{name}" — '
+                        f'likely a handle; look for real author name in content'
+                    )
 
-        return False
+        return None
 
     # ── Response parsing ────────────────────────────────────────────────
 
@@ -731,6 +768,10 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 continue
 
             if should_update:
+                # No-op detection for creators: skip if LLM value is structurally identical
+                if field_name == 'creators' and self._creators_are_equivalent(item_data, value):
+                    continue
+
                 old_value = self._get_current_field_value(item_data, field_name)
                 changes[field_name] = {
                     'old': old_value,
@@ -781,6 +822,26 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                     parts.append(c.get('name', ''))
             return '; '.join(parts)
         return item_data.get(field_name, '(empty)')
+
+    def _normalize_creator(self, creator: Dict) -> tuple:
+        """Normalize a creator dict to a comparable tuple."""
+        ctype = creator.get('creatorType', 'author').strip().lower()
+        if 'name' in creator:
+            return ('org', creator['name'].strip().lower(), ctype)
+        first = creator.get('firstName', '').strip().lower()
+        last = creator.get('lastName', '').strip().lower()
+        return ('person', first, last, ctype)
+
+    def _creators_are_equivalent(self, item_data: Dict, llm_value: str) -> bool:
+        """Check if LLM-proposed creators are structurally identical to existing."""
+        existing = item_data.get('creators', [])
+        parsed = self._parse_creators_value(llm_value)
+        if len(existing) != len(parsed):
+            return False
+        for ec, pc in zip(existing, parsed):
+            if self._normalize_creator(ec) != self._normalize_creator(pc):
+                return False
+        return True
 
     # ── Apply updates ───────────────────────────────────────────────────
 
@@ -878,9 +939,25 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                     'lastName': last_name,
                 })
             elif ' ' in part:
-                # "FirstName LastName" format
+                # "FirstName LastName" format — but check for org names first
                 words = part.strip().split()
+                is_org = False
                 if len(words) >= 2:
+                    # Check if first word is a stop word (e.g., "The Walrus")
+                    if words[0].lower() in STOP_FIRST_NAMES:
+                        is_org = True
+                    # Check if any word is an org keyword (e.g., "BBC News")
+                    if not is_org:
+                        for w in words:
+                            if w.lower() in ORG_KEYWORDS:
+                                is_org = True
+                                break
+                if is_org:
+                    creators.append({
+                        'creatorType': 'author',
+                        'name': part.strip(),
+                    })
+                elif len(words) >= 2:
                     creators.append({
                         'creatorType': 'author',
                         'firstName': ' '.join(words[:-1]),

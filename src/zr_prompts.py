@@ -441,7 +441,8 @@ def metadata_verification_prompt(
     current_metadata: dict,
     missing_fields: list,
     suspicious_fields: list,
-    content: str
+    content: str,
+    suspicious_reasons: dict = None
 ) -> str:
     """
     Prompt for verifying and extracting bibliographic metadata from source content.
@@ -455,10 +456,14 @@ def metadata_verification_prompt(
         missing_fields: List of field names that are empty/missing
         suspicious_fields: List of field names with suspicious values
         content: Source content (first ~15K chars)
+        suspicious_reasons: Dict of field_name -> reason string explaining why suspicious
 
     Returns:
         Formatted prompt string
     """
+    if suspicious_reasons is None:
+        suspicious_reasons = {}
+
     # Format current metadata for display
     metadata_lines = []
     for field, value in current_metadata.items():
@@ -466,7 +471,11 @@ def metadata_verification_prompt(
         if field in missing_fields:
             status = " [MISSING]"
         elif field in suspicious_fields:
-            status = " [SUSPICIOUS]"
+            reason = suspicious_reasons.get(field, '')
+            if reason:
+                status = f" [SUSPICIOUS: {reason}]"
+            else:
+                status = " [SUSPICIOUS]"
         metadata_lines.append(f"  {field}: {value}{status}")
     metadata_display = "\n".join(metadata_lines)
 
@@ -488,14 +497,16 @@ Source Content (may be truncated):
 INSTRUCTIONS:
 1. First, assess whether the current item type is correct based on the source content.
 2. Then, for each bibliographic field listed below, verify the current value or extract it from the content.
-3. For creators/authors: provide as "LastName, FirstName" separated by semicolons for multiple authors. If the author is an organization, provide just the organization name.
+3. For creators/authors: provide as "LastName, FirstName" separated by semicolons for multiple authors. If the author is an organization, provide just the organization name (e.g., "BBC News", NOT "News, BBC").
 4. For dates: use YYYY-MM-DD format if possible, YYYY-MM if only month available, or YYYY if only year.
 5. Verify ALL fields listed above, including those with existing values. For fields marked [MISSING] or [SUSPICIOUS], focus on extracting or correcting values. For other fields, confirm they are correct or provide corrections if you find errors.
-6. For creators/authors, pay special attention to:
-   - Whether the listed author is the actual author or the website/publication name
-   - Organization names incorrectly split into first/last name fields (provide as a single organization name instead)
-   - Usernames or handles instead of real author names
-   - Missing co-authors when the source content lists multiple authors
+6. CRITICAL creator/author rules — read these carefully for any field marked [SUSPICIOUS]:
+   - The [SUSPICIOUS: ...] annotation explains EXACTLY what is wrong. Read it and follow its guidance.
+   - If the annotation says the creator "matches" a publication/blog/website name: the current value is the publication name, NOT the author. Search the content for an actual author byline (look for "by", "written by", "author:", byline metadata, etc.).
+   - If the annotation says "org keyword" or "stop word": the current value is an organization name incorrectly split into person first/last fields. Provide it as a single organization name (e.g., "Future of Privacy Forum", NOT "Forum, Future of Privacy").
+   - If the annotation says "username-like": the current value is a handle/username. Search the content for the person's real name.
+   - CRITICAL: Do NOT simply reformat or reorder the suspicious value and return it as a "correction". If you cannot find a genuinely better value from the content, use status "not_found" instead.
+   - Organization names must be provided as a single name (e.g., "BBC News"), never in "LastName, FirstName" format.
 
 FORMAT YOUR RESPONSE EXACTLY AS FOLLOWS:
 
