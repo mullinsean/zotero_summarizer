@@ -296,9 +296,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         if no_content_count > 0:
             print(f"\n  Skipped {no_content_count}/{len(items_for_llm)} items: no extractable content (no attachments or URL fetch failed)")
-            if self.verbose:
-                for title in no_content_titles:
-                    print(f"    - {title}")
+            for title in no_content_titles:
+                print(f"    - {title}")
             print(f"  Tip: Run --organize-sources first to save webpage snapshots and create parent items\n")
 
         if not batch_requests:
@@ -401,6 +400,20 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             if before_citation:
                 print(f"    Citation: {before_citation}")
 
+            # Show LLM-generated reference (--verbose)
+            if self.verbose:
+                parsed = parsed_results.get(item_key)
+                gen_ref = parsed.get('generated_reference', {}) if parsed else {}
+                if gen_ref:
+                    print(f"    LLM-generated from content:")
+                    for gkey in ('GENERATED_AUTHORS', 'GENERATED_DATE',
+                                 'GENERATED_TITLE', 'GENERATED_PUBLICATION',
+                                 'GENERATED_TYPE'):
+                        gval = gen_ref.get(gkey)
+                        if gval:
+                            label = gkey.replace('GENERATED_', '').lower()
+                            print(f"      {label}: {gval}")
+
             if type_change:
                 print(f"    Type: {type_change['from']} -> {type_change['to']} ({type_change['confidence']})")
 
@@ -409,7 +422,10 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 new_val = change['new']
                 action = change['action']
                 conf = change['confidence']
-                print(f"    {field}: {old_val!r} -> {new_val!r} [{action}, {conf}]")
+                if field == 'creators' and old_val == new_val:
+                    print(f"    {field}: {old_val!r} (person fields -> org name) [{action}, {conf}]")
+                else:
+                    print(f"    {field}: {old_val!r} -> {new_val!r} [{action}, {conf}]")
 
             print()
 
@@ -713,6 +729,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'citation_issues': None,
             'type_assessment': None,
             'fields': {},
+            'generated_reference': {},
         }
 
         lines = response_text.strip().split('\n')
@@ -720,6 +737,14 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         while i < len(lines):
             line = lines[i].strip()
+
+            # Parse GENERATED_* lines from Step 1
+            if line.startswith('GENERATED_'):
+                key = line.split(':', 1)[0].strip()
+                val = line.split(':', 1)[1].strip() if ':' in line else ''
+                result['generated_reference'][key] = val
+                i += 1
+                continue
 
             # Parse CITATION_STATUS line
             if line.startswith('CITATION_STATUS:'):
