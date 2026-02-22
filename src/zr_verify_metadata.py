@@ -10,13 +10,15 @@ import csv
 import re
 from typing import Optional, Dict, List, Any
 
+from bs4 import BeautifulSoup
+
 # Handle both relative and absolute imports
 try:
     from .zr_common import ZoteroResearcherBase
-    from .zr_prompts import metadata_verification_prompt
+    from .zr_prompts import citation_verification_prompt
 except ImportError:
     from zr_common import ZoteroResearcherBase
-    from zr_prompts import metadata_verification_prompt
+    from zr_prompts import citation_verification_prompt
 
 
 # Tag added to items after successful verification
@@ -130,11 +132,12 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         """
         Main entry point: audit and fix metadata for items in a collection.
 
-        Four phases:
-          A. Audit — check fields against APA requirements (no LLM)
-          B. LLM Verification — extract/verify missing fields from content
+        Five phases:
+          A. Audit — collect metadata and fetch APA citations (all items go to LLM)
+          B. LLM Verification — citation-driven evaluation with Sonnet
           C. Compute Updates — determine safe changes
           D. Apply or Report — write to Zotero or show dry-run report
+          E. Before/After — re-fetch and display corrected citations
 
         Args:
             collection_key: Zotero collection key
@@ -153,8 +156,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'skipped_notes': 0,
             'skipped_attachments': 0,
             'audited': 0,
-            'needs_verification': 0,
-            'already_complete': 0,
+            'citation_correct': 0,
             'llm_verified': 0,
             'items_updated': 0,
             'fields_updated': 0,
@@ -164,15 +166,15 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         report_rows = []
 
         print("=" * 80)
-        print("METADATA VERIFICATION")
+        print("METADATA VERIFICATION (Citation-Driven)")
         print("=" * 80)
         if dry_run:
             print("MODE: Dry run (no changes will be made)\n")
         else:
             print()
 
-        # ── Phase A: Audit ──────────────────────────────────────────────
-        print("Phase A: Auditing metadata fields...\n")
+        # ── Phase A: Audit & Fetch Citations ─────────────────────────────
+        print("Phase A: Collecting metadata and fetching APA citations...\n")
 
         items = self.get_items_to_process(
             collection_key,
@@ -211,52 +213,45 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             return stats
 
         # Check for already-verified items
-        items_to_audit = []
+        items_to_check = []
         for item in processable_items:
             if not self.force_rebuild and self._has_verified_tag(item):
                 stats['skipped_verified'] += 1
                 report_rows.append(self._build_report_row(item, 'verified'))
                 continue
-            items_to_audit.append(item)
+            items_to_check.append(item)
 
         if stats['skipped_verified'] > 0:
             print(f"Skipped {stats['skipped_verified']} previously verified items (use --force to re-verify)")
 
-        if not items_to_audit:
+        if not items_to_check:
             print("\nAll items already verified. Use --force to re-verify.")
             if report_path:
                 self._generate_csv_report(report_rows, report_path)
             return stats
 
-        # Audit each item's fields
-        items_needing_llm = []  # (item, audit_result) pairs
-        for item in items_to_audit:
+        # Audit each item's fields and fetch APA citations
+        items_for_llm = []  # (item, audit, citation) triples
+        citations = {}  # item_key -> citation string (for Phase E before/after)
+
+        for item in items_to_check:
             audit = self._audit_item(item)
             stats['audited'] += 1
 
-            if audit['needs_verification']:
-                items_needing_llm.append((item, audit))
-                stats['needs_verification'] += 1
-            else:
-                stats['already_complete'] += 1
-                report_rows.append(self._build_report_row(item, 'complete'))
+            # Fetch APA citation for every item
+            citation = self._fetch_apa_citation(item['key'])
+            if citation:
+                citations[item['key']] = citation
+
+            items_for_llm.append((item, audit, citation))
 
         print(f"\nAudit complete:")
         print(f"  {stats['audited']} items audited")
-        print(f"  {stats['already_complete']} items have complete metadata")
-        print(f"  {stats['needs_verification']} items need LLM verification")
+        print(f"  {len(citations)}/{stats['audited']} APA citations fetched")
+        print(f"  All {len(items_for_llm)} items will be verified by LLM")
 
-        if not items_needing_llm:
-            # Tag complete items if not dry run
-            if not dry_run:
-                self._tag_complete_items(items_to_audit, items_needing_llm)
-            print("\nNo items need LLM verification.")
-            if report_path:
-                self._generate_csv_report(report_rows, report_path)
-            return stats
-
-        # ── Phase B: LLM Verification ──────────────────────────────────
-        print(f"\nPhase B: Verifying {len(items_needing_llm)} items with LLM...\n")
+        # ── Phase B: LLM Verification (Citation-Driven) ──────────────────
+        print(f"\nPhase B: Verifying {len(items_for_llm)} items with LLM (Sonnet)...\n")
 
         # Build batch requests
         batch_requests = []
@@ -264,7 +259,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         no_content_count = 0
         no_content_titles = []
 
-        for item, audit in items_needing_llm:
+        for item, audit, citation in items_for_llm:
             item_key = item['key']
             item_title = item['data'].get('title', 'Untitled')
 
@@ -274,34 +269,33 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 no_content_count += 1
                 no_content_titles.append(item_title)
                 report_rows.append(self._build_report_row(
-                    item, 'incomplete', missing_fields=audit['missing_fields']))
+                    item, 'incomplete', missing_fields=audit['missing_fields'],
+                    citation=citation))
                 stats['errors'] += 1
                 continue
 
             # Truncate content
             content_truncated = content[:VERIFICATION_CONTENT_LIMIT]
 
-            # Build prompt
-            prompt = metadata_verification_prompt(
+            # Build citation-driven prompt
+            prompt = citation_verification_prompt(
                 item_type=audit['item_type'],
+                citation=citation or '(citation unavailable)',
                 current_metadata=audit['current_metadata'],
-                missing_fields=audit['missing_fields'],
-                suspicious_fields=audit['suspicious_fields'],
                 content=content_truncated,
-                suspicious_reasons=audit.get('suspicious_reasons', {}),
             )
 
             batch_requests.append({
                 'id': item_key,
                 'prompt': prompt,
                 'max_tokens': 2000,
-                'model': self.haiku_model,
+                'model': self.sonnet_model,
                 'temperature': 0.2,
             })
             item_map[item_key] = (item, audit)
 
         if no_content_count > 0:
-            print(f"\n  Skipped {no_content_count}/{len(items_needing_llm)} items: no extractable content (no attachments or URL fetch failed)")
+            print(f"\n  Skipped {no_content_count}/{len(items_for_llm)} items: no extractable content (no attachments or URL fetch failed)")
             if self.verbose:
                 for title in no_content_titles:
                     print(f"    - {title}")
@@ -328,7 +322,12 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         print()  # newline after progress
 
         stats['llm_verified'] = sum(1 for v in parsed_results.values() if v is not None)
+        stats['citation_correct'] = sum(
+            1 for v in parsed_results.values()
+            if v is not None and v.get('citation_status') == 'correct'
+        )
         print(f"  {stats['llm_verified']}/{len(batch_requests)} items successfully verified")
+        print(f"  {stats['citation_correct']} items have correct citations")
 
         # ── Phase C: Compute Updates ────────────────────────────────────
         print(f"\nPhase C: Computing updates...\n")
@@ -340,7 +339,6 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 continue
 
             item, audit = item_map[request_id]
-            item_title = item['data'].get('title', 'Untitled')
 
             changes = self._compute_field_updates(item, audit, parsed)
             type_change = self._compute_type_change(item, parsed)
@@ -352,9 +350,11 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         updated_keys = {item['key'] for item, _, _ in update_plans}
         for request_id, (item, audit) in item_map.items():
             parsed = parsed_results.get(request_id)
+            citation = citations.get(request_id)
             if parsed is None:
                 report_rows.append(self._build_report_row(
-                    item, 'incomplete', missing_fields=audit['missing_fields']))
+                    item, 'incomplete', missing_fields=audit['missing_fields'],
+                    citation=citation))
             elif request_id in updated_keys:
                 fields_updated_list = []
                 type_override = None
@@ -368,10 +368,12 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
                 report_rows.append(self._build_report_row(
                     item, 'updated', missing_fields=remaining_missing,
                     fields_updated=fields_updated_list,
-                    item_type_override=type_override))
+                    item_type_override=type_override,
+                    citation=citation))
             else:
                 report_rows.append(self._build_report_row(
-                    item, 'complete', missing_fields=audit['missing_fields']))
+                    item, 'complete', missing_fields=audit['missing_fields'],
+                    citation=citation))
 
         # ── Phase D: Apply or Report ────────────────────────────────────
         print(f"Phase D: {'Reporting changes (dry run)' if dry_run else 'Applying updates'}...\n")
@@ -381,18 +383,23 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             # Tag all verified items (even if no changes needed)
             if not dry_run:
                 self._tag_verified_items(
-                    [item for item, _ in items_needing_llm],
+                    [item for item, _ in item_map.values()],
                     parsed_results
                 )
             if report_path:
                 self._generate_csv_report(report_rows, report_path)
             return stats
 
-        # Display proposed changes
+        # Display proposed changes (with before citation)
         for item, changes, type_change in update_plans:
             item_title = item['data'].get('title', 'Untitled')[:60]
             item_key = item['key']
             print(f"  [{item_key}] {item_title}")
+
+            # Show current APA citation
+            before_citation = citations.get(item_key)
+            if before_citation:
+                print(f"    Citation: {before_citation}")
 
             if type_change:
                 print(f"    Type: {type_change['from']} -> {type_change['to']} ({type_change['confidence']})")
@@ -443,9 +450,23 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         # Tag all successfully verified items
         self._tag_verified_items(
-            [item for item, _ in items_needing_llm],
+            [item for item, _ in item_map.values()],
             parsed_results
         )
+
+        # ── Phase E: Before/After Citation Display ──────────────────────
+        if update_plans:
+            print(f"\nPhase E: Verifying citation improvements...\n")
+            for item, changes, type_change in update_plans:
+                item_key = item['key']
+                item_title = item['data'].get('title', 'Untitled')[:60]
+                before_citation = citations.get(item_key, '(unavailable)')
+                after_citation = self._fetch_apa_citation(item_key) or '(unavailable)'
+
+                print(f"  [{item_key}] {item_title}")
+                print(f"    Before: {before_citation}")
+                print(f"    After:  {after_citation}")
+                print()
 
         # Final summary
         print(f"\n{'='*80}")
@@ -454,7 +475,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         print(f"  Items in collection: {stats['total_items']}")
         print(f"  Previously verified: {stats['skipped_verified']}")
         print(f"  Audited:             {stats['audited']}")
-        print(f"  Already complete:    {stats['already_complete']}")
+        print(f"  Citation correct:    {stats['citation_correct']}")
         print(f"  LLM verified:        {stats['llm_verified']}")
         print(f"  Items updated:       {stats['items_updated']}")
         print(f"  Fields updated:      {stats['fields_updated']}")
@@ -650,6 +671,31 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         return None
 
+    # ── Citation fetching ─────────────────────────────────────────────
+
+    def _fetch_apa_citation(self, item_key: str) -> Optional[str]:
+        """
+        Fetch the rendered APA citation for an item from the Zotero API.
+
+        Calls the Zotero API with content='bib', style='apa' to get the
+        actual citation that Zotero would generate. Strips HTML to return
+        plain text.
+
+        Returns plain text citation string, or None on failure.
+        """
+        try:
+            bib_list = self.zot.item(item_key, content='bib', style='apa')
+            if not bib_list:
+                return None
+            # bib_list is ['<div class="csl-entry">...</div>']
+            html_citation = bib_list[0] if isinstance(bib_list, list) else bib_list
+            soup = BeautifulSoup(html_citation, 'html.parser')
+            return soup.get_text().strip()
+        except Exception as e:
+            if self.verbose:
+                print(f"  Warning: Could not fetch APA citation for {item_key}: {e}")
+            return None
+
     # ── Response parsing ────────────────────────────────────────────────
 
     def _parse_verification_response(self, response_text: str) -> Optional[Dict]:
@@ -657,10 +703,14 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         Parse the LLM verification response into structured data.
 
         Returns dict with:
+          citation_status: 'correct' | 'needs_fixes' | None
+          citation_issues: str | None
           type_assessment: {current, suggested, confidence, reason}
           fields: {field_name: {status, value, confidence}}
         """
         result = {
+            'citation_status': None,
+            'citation_issues': None,
             'type_assessment': None,
             'fields': {},
         }
@@ -670,6 +720,18 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
         while i < len(lines):
             line = lines[i].strip()
+
+            # Parse CITATION_STATUS line
+            if line.startswith('CITATION_STATUS:'):
+                result['citation_status'] = line[len('CITATION_STATUS:'):].strip().lower()
+                i += 1
+                continue
+
+            # Parse CITATION_ISSUES line
+            if line.startswith('CITATION_ISSUES:'):
+                result['citation_issues'] = line[len('CITATION_ISSUES:'):].strip()
+                i += 1
+                continue
 
             # Parse ITEM_TYPE_ASSESSMENT block
             if line.startswith('ITEM_TYPE_ASSESSMENT:'):
@@ -714,7 +776,10 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
 
             i += 1
 
-        return result if (result['type_assessment'] or result['fields']) else None
+        # Result is valid if we got citation_status, type_assessment, or fields
+        if result['citation_status'] or result['type_assessment'] or result['fields']:
+            return result
+        return None
 
     # ── Update computation ──────────────────────────────────────────────
 
@@ -732,6 +797,10 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         """
         changes = {}
         item_data = item['data']
+
+        # Fast path: if LLM says citation is correct, no field changes needed
+        if parsed.get('citation_status') == 'correct':
+            return changes
 
         for field_name, field_info in parsed.get('fields', {}).items():
             status = field_info.get('status', '')
@@ -1022,7 +1091,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         status: str,
         missing_fields: Optional[List[str]] = None,
         fields_updated: Optional[List[str]] = None,
-        item_type_override: Optional[str] = None
+        item_type_override: Optional[str] = None,
+        citation: Optional[str] = None
     ) -> Dict[str, str]:
         """Build a single CSV report row for an item."""
         data = item['data']
@@ -1059,6 +1129,7 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
             'publisher': data.get('publisher', ''),
             'DOI': data.get('DOI', ''),
             'url': data.get('url', ''),
+            'citation': citation or '',
             'status': status,
             'missing_fields': '; '.join(missing_fields) if missing_fields else '',
             'fields_updated': '; '.join(fields_updated) if fields_updated else '',
@@ -1068,8 +1139,8 @@ class ZoteroMetadataVerifier(ZoteroResearcherBase):
         """Write CSV report of metadata audit results."""
         fieldnames = [
             'item_key', 'item_type', 'title', 'creators', 'date',
-            'publication', 'publisher', 'DOI', 'url', 'status',
-            'missing_fields', 'fields_updated',
+            'publication', 'publisher', 'DOI', 'url', 'citation',
+            'status', 'missing_fields', 'fields_updated',
         ]
         with open(report_path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
