@@ -124,7 +124,7 @@ class ZoteroResearcherBase(ZoteroBaseProcessor):
 
         # LLM model configuration
         self.haiku_model = "claude-haiku-4-5-20251001"
-        self.sonnet_model = "claude-sonnet-4-5-20250929"
+        self.sonnet_model = "claude-sonnet-4-6"
 
         # Default to Sonnet for enhanced summaries (better quality)
         # Use Haiku with use_haiku=true in config for cost savings
@@ -211,7 +211,7 @@ max_sources=50
 # Set use_haiku=true to reduce cost (~12x cheaper, less nuanced)
 use_haiku=false
 haiku_model=claude-haiku-4-5
-sonnet_model=claude-sonnet-4-5
+sonnet_model=claude-sonnet-4-6
 # Note: use_sonnet is deprecated but still supported for backward compatibility
 
 # ============================================================
